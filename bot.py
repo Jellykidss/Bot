@@ -55,4 +55,4 @@ async def leave(ctx):
 keep_alive()
 
 # รันบอทด้วย Token ของคุณ
-bot.run("MTU0NjUwNDc1MDYzODU2MzM5MQ.Ggwp9t.D9UuGXjqowtYVf2ERoJkPoavbM_Gw9KCN0_AnY")
+bot.run(os.getenv("DISCORD_TOKEN"))
