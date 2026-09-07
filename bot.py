@@ -1,3 +1,4 @@
+import os
 import discord
 from discord.ext import commands
 from keep_alive import keep_alive
@@ -54,5 +55,5 @@ async def leave(ctx):
 # สั่งรันเว็บเซิร์ฟเวอร์รักษาสถานะออนไลน์
 keep_alive()
 
-# รันบอทด้วย Token ของคุณ
+# รันบอทด้วย Environment Variable
 bot.run(os.getenv("DISCORD_TOKEN"))
