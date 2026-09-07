@@ -1,0 +1,5 @@
+packages = [
+  "libffi-dev",
+  "libsodium-dev",
+  "python3-dev"
+]
