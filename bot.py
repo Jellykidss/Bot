@@ -1,4 +1,5 @@
 import os
+import asyncio
 import discord
 from discord.ext import commands
 from keep_alive import keep_alive
@@ -19,31 +20,48 @@ async def on_ready():
     print(f"Logged in as {bot.user.name} (ID: {bot.user.id})")
     print("Bot is ready and online!")
     
-    channel = bot.get_channel(CHANNEL_ID)
-    if channel:
-        if not discord.utils.get(bot.voice_clients, guild=channel.guild):
-            try:
-                await channel.connect()
-                print(f"เชื่อมต่อเข้าห้อง **{channel.name}** เรียบร้อยแล้ว!")
-            except Exception as e:
-                print(f"เกิดข้อผิดพลาดในการเข้าห้อง: {e}")
-    else:
-        print("ไม่พบห้องเสียง กรุณาตรวจสอบ ID อีกครั้ง")
+    # ระบบพยายามเชื่อมต่อเข้าห้องเสียงอัตโนมัติจนกว่าจะสำเร็จ
+    while True:
+        try:
+            channel = await bot.fetch_channel(CHANNEL_ID)
+            if channel:
+                # ตรวจสอบว่าบอทอยู่ในห้องเสียงนี้หรือยัง
+                voice_client = discord.utils.get(bot.voice_clients, guild=channel.guild)
+                if voice_client and voice_client.is_connected():
+                    if voice_client.channel.id == channel.id:
+                        print(f"บอทอยู่ในห้อง **{channel.name}** เรียบร้อยแล้ว")
+                        break
+                    else:
+                        await voice_client.move_to(channel)
+                        print(f"ย้ายบอทมายังห้อง **{channel.name}** เรียบร้อยแล้ว")
+                        break
+                else:
+                    await channel.connect()
+                    print(f"เชื่อมต่อเข้าห้อง **{channel.name}** เรียบร้อยแล้ว!")
+                    break
+        except Exception as e:
+            print(f"กำลังลองเชื่อมต่อเข้าห้องเสียงใหม่... (ข้อผิดพลาด: {e})")
+        
+        # รอ 5 วินาทีก่อนลองใหม่หากยังไม่สำเร็จ
+        await asyncio.sleep(5)
 
-# คำสั่ง join
+# คำสั่งเรียกบอทเข้าห้องเสียง (พิมพ์ !join ในแชท)
 @bot.command(name="join")
 async def join(ctx):
-    if ctx.author.voice:
-        channel = ctx.author.voice.channel
-        if ctx.voice_client is not None:
-            await ctx.voice_client.move_to(channel)
+    try:
+        channel = await bot.fetch_channel(CHANNEL_ID)
+        if channel:
+            if ctx.voice_client is not None:
+                await ctx.voice_client.move_to(channel)
+            else:
+                await channel.connect()
+            await ctx.send(f"ดึงบอทเข้าห้อง **{channel.name}** เรียบร้อยแล้วครับ!")
         else:
-            await channel.connect()
-        await ctx.send(f"เชื่อมต่อเข้าห้อง **{channel.name}** เรียบร้อยแล้ว!")
-    else:
-        await ctx.send("กรุณาเข้าห้องเสียงก่อนใช้คำสั่งนี้!")
+            await ctx.send("ไม่พบห้องเสียงที่กำหนดไว้")
+    except Exception as e:
+        await ctx.send(f"เกิดข้อผิดพลาด: {e}")
 
-# คำสั่ง leave
+# คำสั่งออกห้องเสียง (พิมพ์ !leave ในแชท)
 @bot.command(name="leave")
 async def leave(ctx):
     if ctx.voice_client:
