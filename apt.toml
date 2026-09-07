@@ -1,0 +1,8 @@
+buildpacks = ["https://github.com/render/render-buildpack-python"]
+
+[apt]
+packages = [
+  "libffi-dev",
+  "libnacl-dev",
+  "python3-dev"
+]
