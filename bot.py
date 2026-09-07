@@ -1,77 +1,91 @@
 import os
-import asyncio
 import discord
+from discord import app_commands
 from discord.ext import commands
 from keep_alive import keep_alive
 
-# ตั้งค่า Intents
+# กำหนด Intent ของบอท
 intents = discord.Intents.default()
 intents.message_content = True
+intents.guilds = True
 intents.voice_states = True
 
-# สร้าง Bot Instance
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# กำหนด ID ของห้องเสียง
-CHANNEL_ID = 1546510895813886002
+# กำหนดไอดีห้องเสียงเป้าหมายที่คุณต้องการให้บอทเข้าอัตโนมัติ
+TARGET_CHANNEL_ID = 1546510895813886002
+
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name} (ID: {bot.user.id})")
-    print("Bot is ready and online!")
-    
-    # ระบบพยายามเชื่อมต่อเข้าห้องเสียงอัตโนมัติจนกว่าจะสำเร็จ
-    while True:
-        try:
-            channel = await bot.fetch_channel(CHANNEL_ID)
-            if channel:
-                # ตรวจสอบว่าบอทอยู่ในห้องเสียงนี้หรือยัง
-                voice_client = discord.utils.get(bot.voice_clients, guild=channel.guild)
-                if voice_client and voice_client.is_connected():
-                    if voice_client.channel.id == channel.id:
-                        print(f"บอทอยู่ในห้อง **{channel.name}** เรียบร้อยแล้ว")
-                        break
-                    else:
-                        await voice_client.move_to(channel)
-                        print(f"ย้ายบอทมายังห้อง **{channel.name}** เรียบร้อยแล้ว")
-                        break
-                else:
-                    await channel.connect()
-                    print(f"เชื่อมต่อเข้าห้อง **{channel.name}** เรียบร้อยแล้ว!")
-                    break
-        except Exception as e:
-            print(f"กำลังลองเชื่อมต่อเข้าห้องเสียงใหม่... (ข้อผิดพลาด: {e})")
-        
-        # รอ 5 วินาทีก่อนลองใหม่หากยังไม่สำเร็จ
-        await asyncio.sleep(5)
+  print(f"Logged in as {bot.user.name}")
+  # ซิงค์ Slash Commands กับ Discord
+  try:
+    synced = await bot.tree.sync()
+    print(f"Synced {len(synced)} command(s)")
+  except Exception as e:
+    print(f"Failed to sync commands: {e}")
 
-# คำสั่งเรียกบอทเข้าห้องเสียง (พิมพ์ !join ในแชท)
-@bot.command(name="join")
-async def join(ctx):
-    try:
-        channel = await bot.fetch_channel(CHANNEL_ID)
-        if channel:
-            if ctx.voice_client is not None:
-                await ctx.voice_client.move_to(channel)
-            else:
-                await channel.connect()
-            await ctx.send(f"ดึงบอทเข้าห้อง **{channel.name}** เรียบร้อยแล้วครับ!")
-        else:
-            await ctx.send("ไม่พบห้องเสียงที่กำหนดไว้")
-    except Exception as e:
-        await ctx.send(f"เกิดข้อผิดพลาด: {e}")
+  # เชื่อมต่อเข้าห้องเสียงเป้าหมายอัตโนมัติเมื่อบอทออนไลน์
+  channel = bot.get_channel(TARGET_CHANNEL_ID)
+  if channel and isinstance(channel, discord.VoiceChannel):
+    if not discord.utils.get(bot.voice_clients, guild=channel.guild):
+      try:
+        await channel.connect()
+        print(f"Connected to voice channel: {channel.name}")
+      except Exception as e:
+        print(f"เกิดข้อผิดพลาดในการเชื่อมต่อเสียง: {e}")
 
-# คำสั่งออกห้องเสียง (พิมพ์ !leave ในแชท)
-@bot.command(name="leave")
-async def leave(ctx):
-    if ctx.voice_client:
-        await ctx.voice_client.disconnect()
-        await ctx.send("ออกจากห้องเสียงแล้ว")
+
+# --- Slash Command: /join ---
+@bot.tree.command(name="join", description="ให้บอทเชื่อมต่อเข้าห้องเสียง")
+async def slash_join(interaction: discord.Interaction):
+  if interaction.user.voice and interaction.user.voice.channel:
+    channel = interaction.user.voice.channel
+    voice_client = discord.utils.get(
+        bot.voice_clients, guild=interaction.guild
+    )
+
+    if voice_client and voice_client.is_connected():
+      await voice_client.move_to(channel)
+      await interaction.response.send_message(
+          f"ย้ายเข้ามาที่ห้อง **{channel.name}** เรียบร้อยแล้วครับ!",
+          ephemeral=True,
+      )
     else:
-        await ctx.send("บอทไม่ได้อยู่ในห้องเสียงในขณะนี้")
+      try:
+        await channel.connect()
+        await interaction.response.send_message(
+            f"เชื่อมต่อเข้าห้อง **{channel.name}** เรียบร้อยแล้วครับ!",
+            ephemeral=True,
+        )
+      except Exception as e:
+        await interaction.response.send_message(
+            f"เกิดข้อผิดพลาด: {e}", ephemeral=True
+        )
+  else:
+    await interaction.response.send_message(
+        "คุณต้องอยู่ในห้องเสียงก่อนจึงจะใช้คำสั่งนี้ได้!", ephemeral=True
+    )
 
-# สั่งรันเว็บเซิร์ฟเวอร์รักษาสถานะออนไลน์
+
+# --- Slash Command: /leave ---
+@bot.tree.command(name="leave", description="ให้บอทออกจากห้องเสียง")
+async def slash_leave(interaction: discord.Interaction):
+  voice_client = discord.utils.get(bot.voice_clients, guild=interaction.guild)
+  if voice_client and voice_client.is_connected():
+    await voice_client.disconnect()
+    await interaction.response.send_message(
+        "ออกจากห้องเสียงเรียบร้อยแล้วครับ!", ephemeral=True
+    )
+  else:
+    await interaction.response.send_message(
+        "บอทไม่ได้อยู่ในห้องเสียงในขณะนี้ครับ!", ephemeral=True
+    )
+
+
+# รันระบบ Keep Alive สำหรับ Render
 keep_alive()
 
-# รันบอทด้วย Environment Variable
-bot.run(os.getenv("DISCORD_TOKEN"))
+# ใส่ Token ของบอทคุณตรงนี้
+bot.run(os.environ.get("DISCORD_TOKEN"))
