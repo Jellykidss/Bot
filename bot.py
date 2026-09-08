@@ -320,7 +320,7 @@ async def slash_edit_announcement(interaction: discord.Interaction, channel: dis
         await interaction.response.send_message(f"❌ เกิดข้อผิดพลาด: {e}", ephemeral=True)
 
 
-# ----------------- ระบบจัดการ Ticket แบบ Pop-up เมนูรวม 3 โหมด -----------------
+# ----------------- ระบบจัดการ Ticket แบบ Pop-up เมนูรวม 3 โหมด (รองรับการ Setup หน้าห้อง) -----------------
 
 # 1. Select Menu สำหรับปิดห้องเดี่ยว
 class SingleTicketSelect(discord.ui.Select):
@@ -347,7 +347,7 @@ class SingleTicketView(discord.ui.View):
         self.add_item(SingleTicketSelect(channels))
 
 
-# 2. Select Menu สำหรับเลือกปิดหลายห้อง (3-5 หรือมากกว่า)
+# 2. Select Menu สำหรับเลือกปิดหลายห้อง
 class MultiTicketSelect(discord.ui.Select):
     def __init__(self, channels):
         options = [discord.SelectOption(label=ch.name[:100], value=str(ch.id), description=f"หมวดหมู่: {ch.category.name if ch.category else 'ไม่มี'}") for ch in channels[:25]]
@@ -376,34 +376,33 @@ class MultiTicketView(discord.ui.View):
 
 # 3. หน้าต่างหลัก Pop-up เลือกโหมดจัดการ Ticket
 class TicketManageView(discord.ui.View):
-    def __init__(self, guild):
-        super().__init__(timeout=120)
-        self.guild = guild
+    def __init__(self):
+        super().__init__(timeout=None) # timeout=None ทำให้ปุ่มที่ส่งหน้าห้องไม่หมดอายุ
 
-    @discord.ui.button(label="🗑️ ปิดห้องเดียว", style=discord.ButtonStyle.primary, custom_id="btn_single")
+    @discord.ui.button(label="🗑️ ปิดห้องเดียว", style=discord.ButtonStyle.primary, custom_id="persistent_btn_single")
     async def btn_single(self, interaction: discord.Interaction, button: discord.ui.Button):
-        channels = [ch for ch in self.guild.text_channels if "ticket" in ch.name.lower() or "تيكيت" in ch.name.lower()]
+        channels = [ch for ch in interaction.guild.text_channels if "ticket" in ch.name.lower() or "تيكيت" in ch.name.lower()]
         if not channels:
             await interaction.response.send_message("⚠️ ไม่พบห้อง Ticket ในขณะนี้ครับ", ephemeral=True)
             return
         await interaction.response.send_message("📋 กรุณาเลือกห้อง Ticket ที่ต้องการปิด (1 ห้อง):", view=SingleTicketView(channels), ephemeral=True)
 
-    @discord.ui.button(label="☑️ เลือกปิดหลายห้อง", style=discord.ButtonStyle.success, custom_id="btn_multi")
+    @discord.ui.button(label="☑️ เลือกปิดหลายห้อง", style=discord.ButtonStyle.success, custom_id="persistent_btn_multi")
     async def btn_multi(self, interaction: discord.Interaction, button: discord.ui.Button):
-        channels = [ch for ch in self.guild.text_channels if "ticket" in ch.name.lower() or "تيكيت" in ch.name.lower()]
+        channels = [ch for ch in interaction.guild.text_channels if "ticket" in ch.name.lower() or "تيكيت" in ch.name.lower()]
         if not channels:
             await interaction.response.send_message("⚠️ ไม่พบห้อง Ticket ในขณะนี้ครับ", ephemeral=True)
             return
         await interaction.response.send_message("📋 กรุณาเลือกห้อง Ticket ที่ต้องการปิด (ติ๊กเลือกหลายห้องได้):", view=MultiTicketView(channels), ephemeral=True)
 
-    @discord.ui.button(label="🚨 ปิดห้องทั้งหมด", style=discord.ButtonStyle.danger, custom_id="btn_all")
+    @discord.ui.button(label="🚨 ปิดห้องทั้งหมด", style=discord.ButtonStyle.danger, custom_id="persistent_btn_all")
     async def btn_all(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("❌ คำสั่งนี้ต้องใช้สิทธิ์ผู้ดูแลระบบ (Administrator) เท่านั้น", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
-        channels_to_delete = [ch for ch in self.guild.text_channels if "ticket" in ch.name.lower() or "تيكيت" in ch.name.lower()]
+        channels_to_delete = [ch for ch in interaction.guild.text_channels if "ticket" in ch.name.lower() or "تيكيت" in ch.name.lower()]
         
         if not channels_to_delete:
             await interaction.followup.send("⚠️ ไม่พบห้อง Ticket ที่ต้องปิด", ephemeral=True)
@@ -412,7 +411,7 @@ class TicketManageView(discord.ui.View):
         closed_count = 0
         for ch in channels_to_delete:
             try:
-                await ch.delete(reason=f"Bulk closed via Pop-up by {interaction.user}")
+                await ch.delete(reason=f"Bulk closed via Panel by {interaction.user}")
                 closed_count += 1
                 await asyncio.sleep(0.5)
             except Exception as e:
@@ -421,13 +420,39 @@ class TicketManageView(discord.ui.View):
         await interaction.followup.send(f"✅ ปิดห้อง Ticket ทั้งหมดสำเร็จ **{closed_count}** ห้องแล้วครับ!", ephemeral=True)
 
 
-@bot.tree.command(name="ticket_manage", description="เปิดหน้าต่าง Pop-up เลือกวิธีปิดห้อง Ticket (ห้องเดียว, หลายห้อง, หรือทั้งหมด)")
+# คำสั่งตั้งค่าแผงควบคุม (Setup Panel) ไว้ในห้องแชทให้ทุกคนเห็น
+@bot.tree.command(name="setup_ticket", description="ส่งแผงควบคุมระบบ Ticket (ปุ่มถาวร) ไปยังห้องแชทที่เลือก")
+@app_commands.describe(channel="เลือกห้องแชทที่ต้องการส่งแผงควบคุมปุ่มนี้ไป")
+async def slash_setup_ticket(interaction: discord.Interaction, channel: discord.TextChannel):
+    if not interaction.user.guild_permissions.manage_channels:
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title="🎫 ระบบจัดการห้อง Ticket (Ticket Management Panel)",
+        description=(
+            "ยินดีต้อนรับสู่ระบบจัดการ Ticket ของเซิร์ฟเวอร์\n"
+            "คุณสามารถเลือกกดปุ่มด้านล่างนี้เพื่อจัดการปิดห้อง Ticket ได้ทันที:\n\n"
+            "• **🗑️ ปิดห้องเดียว**: เลือกปิดห้อง Ticket เจาะจงเฉพาะห้องที่ต้องการ\n"
+            "• **☑️ เลือกปิดหลายห้อง**: ติ๊กเลือกห้อง Ticket หลายๆ ห้องพร้อมกัน\n"
+            "• **🚨 ปิดห้องทั้งหมด**: ปิดห้อง Ticket ทั้งหมดในเซิร์ฟเวอร์ทันที *(เฉพาะ Admin)*"
+        ),
+        color=discord.Color.blurple()
+    )
+    embed.set_footer(text="ระบบอัตโนมัติของบอท Discord")
+
+    await channel.send(embed=embed, view=TicketManageView())
+    await interaction.response.send_message(f"✅ ส่งแผงควบคุมระบบ Ticket ไปยังห้อง {channel.mention} เรียบร้อยแล้วครับ!", ephemeral=True)
+
+
+# คำสั่งเดิมแบบ Pop-up ส่วนตัว (เผื่อต้องการเรียกใช้แบบเร่งด่วน)
+@bot.tree.command(name="ticket_manage", description="เปิดหน้าต่าง Pop-up เลือกวิธีปิดห้อง Ticket ส่วนตัว")
 async def slash_ticket_manage(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.manage_channels:
         await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้", ephemeral=True)
         return
 
-    view = TicketManageView(interaction.guild)
+    view = TicketManageView()
     await interaction.response.send_message("🎫 **ระบบจัดการห้อง Ticket**\nกรุณาเลือกรูปแบบการปิดห้องที่คุณต้องการจากปุ่มด้านล่างนี้ครับ:", view=view, ephemeral=True)
 
 
