@@ -16,12 +16,12 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ตั้งค่า yt-dlp สำหรับค้นหาและดึงเสียงจาก SoundCloud โดยตรง
+# ตั้งค่า yt-dlp และเพิ่มเงื่อนไขข้ามเพลงที่ติด DRM หรือใช้งานไม่ได้
 ytdl_format_options = {
     'format': 'bestaudio/best',
     'noplaylist': True,
     'quiet': True,
-    'default_search': 'scsearch',  # เปลี่ยนให้ค้นหาผ่าน SoundCloud ทันทีเมื่อพิมพ์ชื่อเพลง
+    'default_search': 'scsearch5', # ค้นหามา 5 ผลลัพธ์แรก เพื่อเลือกตัวที่ไม่ติด DRM
     'extract_flat': False,
     'socket_timeout': 15,
 }
@@ -98,7 +98,6 @@ async def slash_play(interaction: discord.Interaction, search: str):
 
     try:
         query = search
-        # ถ้าเป็นลิงก์ Spotify ให้ดึงชื่อเพลงมาค้นหาใน SoundCloud ต่อ
         if "spotify.com" in search:
             try:
                 oembed_url = f"https://open.spotify.com/oembed?url={search}"
@@ -110,10 +109,18 @@ async def slash_play(interaction: discord.Interaction, search: str):
                 print(f"Spotify oembed error: {err}")
 
         loop = asyncio.get_event_loop()
-        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(query, download=False))
         
-        if 'entries' in data:
-            data = data['entries'][0]
+        def extract_valid_song():
+            data = ytdl.extract_info(query, download=False)
+            if 'entries' in data:
+                # วนลูปหาเพลงแรกที่ไม่ติด DRM
+                for entry in data['entries']:
+                    if entry and not entry.get('is_live', False):
+                        return entry
+                raise Exception("ทุกผลลัพธ์ของเพลงนี้ติดระบบป้องกัน DRM ไม่สามารถเล่นได้")
+            return data
+
+        data = await loop.run_in_executor(None, extract_valid_song)
 
         song_url = data.get('url')
         song_title = data.get('title', 'เพลงไม่มีชื่อ')
