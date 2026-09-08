@@ -227,41 +227,80 @@ async def slash_stop(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("บอทไม่ได้อยู่ในห้องเสียงครับ!", ephemeral=True)
 
-# ----------------- ระบบประกาศข้อความ (Announcement) -----------------
-@bot.tree.command(name="announcement", description="ประกาศข้อความไปยังห้องที่เลือก (รองรับรูปภาพ)")
-@app_commands.describe(
-    channel="เลือกห้องแชทที่ต้องการส่งประกาศ",
-    message="ข้อความประกาศของคุณ",
-    image="แนบรูปภาพประกาศ (ถ้ามี)"
-)
-async def slash_announcement(interaction: discord.Interaction, channel: discord.TextChannel, message: str, image: discord.Attachment = None):
-    # ตรวจสอบสิทธิ์ผู้ใช้ว่าจัดการข้อความได้ไหม
+# ----------------- ระบบประกาศข้อความ (Modal) -----------------
+class AnnouncementModal(discord.ui.Modal, title="สร้างข้อความประกาศ"):
+    def __init__(self, channel: discord.TextChannel):
+        super().__init__()
+        self.channel = channel
+
+    announcement_text = discord.ui.TextInput(
+        label="เนื้อหาประกาศ (กด Enter เพื่อขึ้นบรรทัดใหม่ได้)",
+        style=discord.TextStyle.paragraph,
+        placeholder="พิมพ์ข้อความของคุณที่นี่...",
+        required=True,
+        max_length=3500
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            sent_msg = await self.channel.send(content=self.announcement_text.value)
+            await interaction.response.send_message(
+                f"✅ ส่งประกาศไปยังห้อง {self.channel.mention} เรียบร้อยแล้ว!\n*(ID ข้อความสำหรับแก้ไข: `{sent_msg.id}`)*", 
+                ephemeral=True
+            )
+        except Exception as e:
+            await interaction.response.send_message(f"❌ เกิดข้อผิดพลาดในการส่งประกาศ: {e}", ephemeral=True)
+
+@bot.tree.command(name="announcement", description="เปิดหน้าต่างเขียนประกาศ (สามารถขึ้นบรรทัดใหม่ได้)")
+@app_commands.describe(channel="เลือกห้องแชทที่ต้องการส่งประกาศ")
+async def slash_announcement(interaction: discord.Interaction, channel: discord.TextChannel):
     if not interaction.user.guild_permissions.manage_messages:
         await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องมีสิทธิ์ Manage Messages)", ephemeral=True)
         return
+    await interaction.response.send_modal(AnnouncementModal(channel))
 
-    try:
-        file = None
-        if image:
-            file = await image.to_file()
+# ----------------- ระบบแก้ไขข้อความประกาศ (Modal) -----------------
+class EditAnnouncementModal(discord.ui.Modal, title="แก้ไขข้อความประกาศ"):
+    def __init__(self, channel: discord.TextChannel, message_id: str, old_content: str):
+        super().__init__()
+        self.channel = channel
+        self.message_id = message_id
 
-        # ส่งข้อความไปยังห้องที่เลือก
-        sent_msg = await channel.send(content=message, file=file)
-        
-        await interaction.response.send_message(
-            f"✅ ส่งประกาศไปยังห้อง {channel.mention} เรียบร้อยแล้ว!\n*(ID ข้อความสำหรับแก้ไข: `{sent_msg.id}`)*", 
-            ephemeral=True
-        )
-    except Exception as e:
-        await interaction.response.send_message(f"❌ เกิดข้อผิดพลาดในการส่งประกาศ: {e}", ephemeral=True)
+        # ดึงข้อความเดิมมาใส่ไว้ในช่องกรอกอัตโนมัติเพื่อให้แก้ต่อได้ง่ายขึ้น
+        self.new_announcement_text.default = old_content
 
-@bot.tree.command(name="edit_announcement", description="แก้ไขข้อความประกาศที่เคยส่งไปแล้ว")
+    new_announcement_text = discord.ui.TextInput(
+        label="เนื้อหาใหม่ (กด Enter เพื่อขึ้นบรรทัดใหม่ได้)",
+        style=discord.TextStyle.paragraph,
+        placeholder="แก้ไขข้อความของคุณที่นี่...",
+        required=True,
+        max_length=3500
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            msg_id_int = int(self.message_id)
+            msg_to_edit = await self.channel.fetch_message(msg_id_int)
+            
+            if msg_to_edit.author != bot.user:
+                await interaction.response.send_message("❌ ไม่สามารถแก้ไขข้อความนี้ได้ เนื่องจากไม่ใช่ข้อความที่บอทส่ง", ephemeral=True)
+                return
+
+            await msg_to_edit.edit(content=self.new_announcement_text.value)
+            await interaction.response.send_message("✅ แก้ไขข้อความประกาศเรียบร้อยแล้วครับ!", ephemeral=True)
+        except ValueError:
+            await interaction.response.send_message("❌ Message ID ไม่ถูกต้อง (ต้องเป็นตัวเลข)", ephemeral=True)
+        except discord.NotFound:
+            await interaction.response.send_message("❌ ไม่พบข้อความตาม ID ที่ระบุในห้องนี้", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ เกิดข้อผิดพลาด: {e}", ephemeral=True)
+
+@bot.tree.command(name="edit_announcement", description="เปิดหน้าต่างแก้ไขข้อความประกาศ")
 @app_commands.describe(
     channel="ห้องแชทที่ข้อความประกาศนั้นอยู่",
-    message_id="ID ของข้อความประกาศที่ต้องการแก้ไข",
-    new_message="ข้อความใหม่ที่ต้องการเปลี่ยน"
+    message_id="ID ของข้อความประกาศที่ต้องการแก้ไข"
 )
-async def slash_edit_announcement(interaction: discord.Interaction, channel: discord.TextChannel, message_id: str, new_message: str):
+async def slash_edit_announcement(interaction: discord.Interaction, channel: discord.TextChannel, message_id: str):
     if not interaction.user.guild_permissions.manage_messages:
         await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้", ephemeral=True)
         return
@@ -271,15 +310,15 @@ async def slash_edit_announcement(interaction: discord.Interaction, channel: dis
         msg_to_edit = await channel.fetch_message(msg_id_int)
         
         if msg_to_edit.author != bot.user:
-            await interaction.response.send_message("❌ บอทรวมถึงข้อความนี้ไม่ได้ หรือไม่ใช่ข้อความที่บอทส่ง", ephemeral=True)
+            await interaction.response.send_message("❌ ข้อความนี้ไม่ใช่ข้อความที่บอทส่ง จึงไม่สามารถแก้ไขผ่านบอทได้", ephemeral=True)
             return
 
-        await msg_to_edit.edit(content=new_message)
-        await interaction.response.send_message("✅ แก้ไขข้อความประกาศเรียบร้อยแล้วครับ!", ephemeral=True)
+        # เปิด Modal และดึงข้อความเก่ามาใส่ช่องพิมพ์ให้อัตโนมัติ
+        await interaction.response.send_modal(EditAnnouncementModal(channel, message_id, msg_to_edit.content))
     except ValueError:
         await interaction.response.send_message("❌ Message ID ไม่ถูกต้อง (ต้องเป็นตัวเลข)", ephemeral=True)
     except discord.NotFound:
-        await interaction.response.send_message("❌ ไม่พบข้อความตาม ID ที่ระบุในห้องนี้", ephemeral=True)
+        await interaction.response.send_message("❌ ไม่พบข้อความตาม ID ที่ระบุ กรุณาตรวจสอบ ID อีกครั้ง", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"❌ เกิดข้อผิดพลาด: {e}", ephemeral=True)
 
