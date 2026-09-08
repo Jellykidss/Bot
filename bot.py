@@ -36,6 +36,18 @@ current_song = {}
 ticket_roles = {}
 feedback_channels = {}  # เก็บห้องรีวิวสาธารณะ
 ticket_categories = {}  # เก็บ ID หมวดหมู่แยกตามประเภท {guild_id: {'buyer': id, 'sell': id, 'preorder': id}}
+ticket_configs = {}     # เก็บการตั้งค่าหน้าตา Embed ของแต่ละหมวดหมู่
+
+# ฟังก์ชันตรวจสอบสิทธิ์ (แอดมิน หรือ มียศที่ตั้งค่าผ่าน /set_ticket_role)
+def has_ticket_permission(interaction: discord.Interaction) -> bool:
+    if interaction.user.guild_permissions.administrator or interaction.user.guild_permissions.manage_channels:
+        return True
+    guild_id = interaction.guild.id
+    if guild_id in ticket_roles:
+        role = interaction.guild.get_role(ticket_roles[guild_id])
+        if role and role in interaction.user.roles:
+            return True
+    return False
 
 @bot.event
 async def on_ready():
@@ -48,6 +60,10 @@ async def on_ready():
 
 @bot.tree.command(name="join", description="ให้บอทเชื่อมต่อเข้าห้องเสียง")
 async def slash_join(interaction: discord.Interaction):
+    if not has_ticket_permission(interaction):
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องเป็นแอดมินหรือมียศที่ได้รับอนุญาตเท่านั้น)", ephemeral=True)
+        return
+
     if interaction.user.voice and interaction.user.voice.channel:
         channel = interaction.user.voice.channel
         voice_client = discord.utils.get(bot.voice_clients, guild=interaction.guild)
@@ -66,6 +82,10 @@ async def slash_join(interaction: discord.Interaction):
 
 @bot.tree.command(name="leave", description="ให้บอทออกจากห้องเสียง")
 async def slash_leave(interaction: discord.Interaction):
+    if not has_ticket_permission(interaction):
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องเป็นแอดมินหรือมียศที่ได้รับอนุญาตเท่านั้น)", ephemeral=True)
+        return
+
     voice_client = discord.utils.get(bot.voice_clients, guild=interaction.guild)
     if voice_client and voice_client.is_connected():
         guild_id = interaction.guild.id
@@ -113,6 +133,10 @@ def play_next(guild_id, voice_client):
 @bot.tree.command(name="play", description="เล่นเพลงทันทีหรือเพิ่มเข้าคิวเพลง")
 @app_commands.describe(search="พิมพ์ชื่อเพลง ศิลปิน หรือวางลิงก์เพลง")
 async def slash_play(interaction: discord.Interaction, search: str):
+    if not has_ticket_permission(interaction):
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องเป็นแอดมินหรือมียศที่ได้รับอนุญาตเท่านั้น)", ephemeral=True)
+        return
+
     if not interaction.user.voice or not interaction.user.voice.channel:
         await interaction.response.send_message("คุณต้องอยู่ในห้องเสียงก่อนจึงจะเปิดเพลงได้!", ephemeral=True)
         return
@@ -185,6 +209,10 @@ async def slash_play(interaction: discord.Interaction, search: str):
 
 @bot.tree.command(name="skip", description="ข้ามเพลงที่กำลังเล่นไปยังเพลงถัดไปในคิว")
 async def slash_skip(interaction: discord.Interaction):
+    if not has_ticket_permission(interaction):
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องเป็นแอดมินหรือมียศที่ได้รับอนุญาตเท่านั้น)", ephemeral=True)
+        return
+
     voice_client = discord.utils.get(bot.voice_clients, guild=interaction.guild)
     if voice_client and voice_client.is_playing():
         voice_client.stop()
@@ -194,6 +222,10 @@ async def slash_skip(interaction: discord.Interaction):
 
 @bot.tree.command(name="queue", description="ดูรายชื่อเพลงทั้งหมดที่รออยู่ในคิว")
 async def slash_queue(interaction: discord.Interaction):
+    if not has_ticket_permission(interaction):
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องเป็นแอดมินหรือมียศที่ได้รับอนุญาตเท่านั้น)", ephemeral=True)
+        return
+
     guild_id = interaction.guild.id
     if guild_id not in queues or len(queues[guild_id]) == 0:
         await interaction.response.send_message("📜 ไม่มีเพลงรออยู่ในคิวขณะนี้ครับ", ephemeral=True)
@@ -207,6 +239,10 @@ async def slash_queue(interaction: discord.Interaction):
 
 @bot.tree.command(name="loop", description="เปิด/ปิด การวนซ้ำเพลงปัจจุบัน")
 async def slash_loop(interaction: discord.Interaction):
+    if not has_ticket_permission(interaction):
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องเป็นแอดมินหรือมียศที่ได้รับอนุญาตเท่านั้น)", ephemeral=True)
+        return
+
     guild_id = interaction.guild.id
     current_status = loop_status.get(guild_id, False)
     loop_status[guild_id] = not current_status
@@ -218,6 +254,10 @@ async def slash_loop(interaction: discord.Interaction):
 
 @bot.tree.command(name="stop", description="หยุดเพลงและล้างคิวทั้งหมด")
 async def slash_stop(interaction: discord.Interaction):
+    if not has_ticket_permission(interaction):
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องเป็นแอดมินหรือมียศที่ได้รับอนุญาตเท่านั้น)", ephemeral=True)
+        return
+
     voice_client = discord.utils.get(bot.voice_clients, guild=interaction.guild)
     if voice_client:
         guild_id = interaction.guild.id
@@ -258,8 +298,8 @@ class AnnouncementModal(discord.ui.Modal, title="สร้างข้อคว�
 @bot.tree.command(name="announcement", description="เปิดหน้าต่างเขียนประกาศ (สามารถขึ้นบรรทัดใหม่ได้)")
 @app_commands.describe(channel="เลือกห้องแชทที่ต้องการส่งประกาศ")
 async def slash_announcement(interaction: discord.Interaction, channel: discord.TextChannel):
-    if not interaction.user.guild_permissions.manage_channels:
-        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้", ephemeral=True)
+    if not has_ticket_permission(interaction):
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องเป็นแอดมินหรือมียศที่ได้รับอนุญาตเท่านั้น)", ephemeral=True)
         return
     await interaction.response.send_modal(AnnouncementModal(channel))
 
@@ -295,8 +335,8 @@ class EditAnnouncementModal(discord.ui.Modal, title="แก้ไขข้อค
 @bot.tree.command(name="edit_announcement", description="เปิดหน้าต่างแก้ไขข้อความประกาศ")
 @app_commands.describe(channel="ห้องแชทที่ข้อความประกาศอยู่", message_id="ID ของข้อความ")
 async def slash_edit_announcement(interaction: discord.Interaction, channel: discord.TextChannel, message_id: str):
-    if not interaction.user.guild_permissions.manage_channels:
-        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้", ephemeral=True)
+    if not has_ticket_permission(interaction):
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องเป็นแอดมินหรือมียศที่ได้รับอนุญาตเท่านั้น)", ephemeral=True)
         return
     try:
         msg_id_int = int(message_id)
@@ -417,8 +457,8 @@ async def slash_setup_role_panel(
     button_label: str = None,
     emoji: str = "➕"
 ):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ คำสั่งนี้ต้องใช้สิทธิ์ผู้ดูแลระบบเท่านั้น", ephemeral=True)
+    if not has_ticket_permission(interaction):
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องเป็นแอดมินหรือมียศที่ได้รับอนุญาตเท่านั้น)", ephemeral=True)
         return
 
     embed_color = discord.Color.blurple()
@@ -452,8 +492,8 @@ async def slash_setup_role_panel(
 @bot.tree.command(name="set_feedback_channel", description="กำหนดห้องรีวิวสาธารณะ (โชว์ให้ลูกค้าคนอื่นเห็น)")
 @app_commands.describe(channel="เลือกห้องแชทที่จะให้แสดงรีวิวสาธารณะ")
 async def slash_set_feedback_channel(interaction: discord.Interaction, channel: discord.TextChannel):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ เฉพาะแอดมินเท่านั้นที่ตั้งค่าได้", ephemeral=True)
+    if not has_ticket_permission(interaction):
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องเป็นแอดมินหรือมียศที่ได้รับอนุญาตเท่านั้น)", ephemeral=True)
         return
     feedback_channels[interaction.guild.id] = channel.id
     await interaction.response.send_message(f"✅ ตั้งค่าห้องรีวิวสาธารณะสำเร็จที่ห้อง {channel.mention}", ephemeral=True)
@@ -473,8 +513,8 @@ async def slash_set_ticket_categories(
     sell_category: discord.CategoryChannel, 
     preorder_category: discord.CategoryChannel
 ):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ เฉพาะแอดมินเท่านั้นที่ตั้งค่าได้", ephemeral=True)
+    if not has_ticket_permission(interaction):
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องเป็นแอดมินหรือมียศที่ได้รับอนุญาตเท่านั้น)", ephemeral=True)
         return
     
     guild_id = interaction.guild.id
@@ -488,6 +528,47 @@ async def slash_set_ticket_categories(
         f"• สั่งซื้อเงินเอ็ม: **{buyer_category.name}**\n"
         f"• ขายเงินเอ็ม: **{sell_category.name}**\n"
         f"• สั่งของในเมือง: **{preorder_category.name}**", 
+        ephemeral=True
+    )
+
+
+# ----------------- ระบบตั้งค่าหน้าตาต้อนรับในห้อง Ticket (แยกตามหมวดหมู่) -----------------
+
+@bot.tree.command(name="set_ticket_config", description="ตั้งค่าข้อความ, หัวข้อ และรูปภาพ ในห้อง Ticket ของแต่ละหมวดหมู่")
+@app_commands.describe(
+    ticket_type="เลือกหมวดหมู่ที่ต้องการตั้งค่า",
+    title_text="หัวข้อหลัก Embed (เช่น THNK FOR BUY)",
+    description_text="ข้อความรายละเอียดในห้อง (เช่น ก่อนที่จะเสนอขายโปรดดูช่องรับเงิน...)",
+    image_url="ลิงก์รูปภาพ หรือ GIF ที่ต้องการแสดงในห้อง"
+)
+@app_commands.choices(ticket_type=[
+    app_commands.Choice(name="สั่งซื้อเงินเอ็ม (Buyer)", value="buyer"),
+    app_commands.Choice(name="ขายเงินเอ็ม (Sell)", value="sell"),
+    app_commands.Choice(name="สั่งของในเมือง (Preorder)", value="preorder")
+])
+async def slash_set_ticket_config(
+    interaction: discord.Interaction,
+    ticket_type: app_commands.Choice[str],
+    title_text: str,
+    description_text: str,
+    image_url: str = None
+):
+    if not has_ticket_permission(interaction):
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องเป็นแอดมินหรือมียศที่ได้รับอนุญาตเท่านั้น)", ephemeral=True)
+        return
+
+    guild_id = interaction.guild.id
+    if guild_id not in ticket_configs:
+        ticket_configs[guild_id] = {}
+
+    ticket_configs[guild_id][ticket_type.value] = {
+        'title': title_text,
+        'description': description_text,
+        'image': image_url
+    }
+
+    await interaction.response.send_message(
+        f"✅ บันทึกการตั้งค่าหน้าตาห้อง Ticket หมวดหมู่ **{ticket_type.name}** เรียบร้อยแล้ว!",
         ephemeral=True
     )
 
@@ -622,7 +703,7 @@ class ReviewSelectView(discord.ui.View):
 @bot.tree.command(name="add_slip", description="เลือกข้อความรีวิวเพื่อเพิ่มหรือแก้ไขรูปสลิป")
 async def slash_add_slip(interaction: discord.Interaction):
     if not has_ticket_permission(interaction):
-        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้", ephemeral=True)
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องเป็นแอดมินหรือมียศที่ได้รับอนุญาตเท่านั้น)", ephemeral=True)
         return
 
     guild_id = interaction.guild.id
@@ -651,7 +732,41 @@ async def slash_add_slip(interaction: discord.Interaction):
     await interaction.followup.send("📋 เลือกโพสต์รีวิวที่ต้องการเพิ่มรูปสลิป:", view=view, ephemeral=True)
 
 
-# ----------------- ระบบเปิด Ticket แบบเลือก 3 หมวดหมู่ (ตามรูปตัวอย่าง) -----------------
+# ----------------- ปุ่มภายในห้อง Ticket (Close & Claim พร้อมกันในห้อง) -----------------
+
+class InTicketControlView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Close", style=discord.ButtonStyle.danger, emoji="🔒", custom_id="ticket_inline_close")
+    async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # ตรวจสอบสิทธิ์: ถ้าไม่ใช่แอดมินหรือผู้มีสิทธิ์ ให้แจ้งเตือนส่วนตัว (ephemeral=True) โดยห้องไม่ปิด
+        if not has_ticket_permission(interaction):
+            await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานปุ่มนี้", ephemeral=True)
+            return
+
+        ch = interaction.channel
+        owner_id = int(ch.topic) if ch.topic and ch.topic.isdigit() else None
+        
+        await interaction.response.send_message("🗑️ กำลังปิดห้อง Ticket นี้...", ephemeral=True)
+        try:
+            await ch.delete(reason=f"Closed by {interaction.user}")
+            if owner_id:
+                asyncio.create_task(send_feedback_panel(interaction.guild, owner_id))
+        except Exception as e:
+            print(f"Failed to delete channel: {e}")
+
+    @discord.ui.button(label="Claim", style=discord.ButtonStyle.success, emoji="🙋‍♂️", custom_id="ticket_inline_claim")
+    async def claim_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # ตรวจสอบสิทธิ์ปุ่ม Claim เช่นเดียวกัน
+        if not has_ticket_permission(interaction):
+            await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานปุ่มนี้", ephemeral=True)
+            return
+
+        await interaction.response.send_message(f"🙋‍♂️ แอดมิน **{interaction.user.mention}** เข้ามารับดูแลเคสนี้เรียบร้อยแล้วครับ!")
+
+
+# ----------------- ระบบเปิด Ticket แบบเลือก 3 หมวดหมู่พร้อมตั้งค่าหน้าตา -----------------
 
 class OpenTicketSelect(discord.ui.Select):
     def __init__(self):
@@ -676,41 +791,27 @@ class OpenTicketSelect(discord.ui.Select):
         choice = self.values[0]
         cats = ticket_categories[guild_id]
         
-        category_id = None
-        prefix = "ticket"
-        if choice == "buyer":
-            category_id = cats.get('buyer')
-            prefix = "buyer"
-        elif choice == "sell":
-            category_id = cats.get('sell')
-            prefix = "sell"
-        elif choice == "preorder":
-            category_id = cats.get('preorder')
-            prefix = "preorder"
-
+        category_id = cats.get(choice)
         category = guild.get_channel(category_id)
         if not category:
             await interaction.followup.send("❌ ไม่พบหมวดหมู่ห้องในระบบ กรุณาให้แอดมินตั้งค่าใหม่", ephemeral=True)
             return
 
-        # สร้างชื่อห้องและเซ็ตสิทธิ์การมองเห็น (เห็นเฉพาะลูกค้าคนนั้น + แอดมิน)
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
             guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True)
         }
 
-        # ดึงยศแอดมินถ้ามี ตั้งให้เห็นห้องด้วย
         if guild_id in ticket_roles:
             admin_role = guild.get_role(ticket_roles[guild_id])
             if admin_role:
                 overwrites[admin_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
 
         channel_count = len(category.text_channels) + 1
-        channel_name = f"{prefix}-{channel_count}"
+        channel_name = f"{choice}-{channel_count}"
 
         try:
-            # สร้างห้องพร้อมเก็บ User ID ของลูกค้าไว้ที่ Topic เพื่อใช้ส่ง DM รีวิวตอนปิดห้อง
             ticket_channel = await guild.create_text_channel(
                 name=channel_name,
                 category=category,
@@ -719,7 +820,22 @@ class OpenTicketSelect(discord.ui.Select):
                 reason=f"Ticket opened by {user}"
             )
 
-            await ticket_channel.send(f"สวัสดีครับคุณ {user.mention} ยินดีต้อนรับสู่ห้องบริการ **{prefix.upper()}**\nกรุณาแจ้งรายละเอียดหรือส่งสลิปได้เลยครับ! (แอดมินจะมาดูแลเร็วๆ นี้)")
+            # ดึงการตั้งค่าหน้าตา Embed ของหมวดหมู่นั้นๆ (ถ้ามี)
+            cfg = ticket_configs.get(guild_id, {}).get(choice, {})
+            title_val = cfg.get('title', f"THNK FOR {choice.upper()}")
+            desc_val = cfg.get('description', f"สวัสดีคุณ {user.mention} กรุณาแจ้งรายละเอียดหรือส่งสลิปได้เลยครับ!")
+            img_val = cfg.get('image', None)
+
+            embed = discord.Embed(
+                title=title_val,
+                description=desc_val,
+                color=discord.Color.dark_theme()
+            )
+            if img_val:
+                embed.set_image(url=img_val)
+
+            view = InTicketControlView()
+            await ticket_channel.send(content=f"{user.mention}", embed=embed, view=view)
             await interaction.followup.send(f"✅ เปิดห้อง Ticket ให้คุณแล้วที่ห้อง: {ticket_channel.mention}", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"❌ เกิดข้อผิดพลาดในการสร้างห้อง: {e}", ephemeral=True)
@@ -735,8 +851,8 @@ class OpenTicketView(discord.ui.View):
     image_url="ลิงก์รูปภาพหรือ GIF ตกแต่งด้านบน"
 )
 async def slash_setup_open_ticket(interaction: discord.Interaction, channel: discord.TextChannel, image_url: str = None):
-    if not interaction.user.guild_permissions.manage_channels:
-        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้", ephemeral=True)
+    if not has_ticket_permission(interaction):
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องเป็นแอดมินหรือมียศที่ได้รับอนุญาตเท่านั้น)", ephemeral=True)
         return
 
     embed = discord.Embed(
@@ -752,17 +868,7 @@ async def slash_setup_open_ticket(interaction: discord.Interaction, channel: dis
     await interaction.response.send_message(f"✅ ส่งแผงเลือกเปิด Ticket ไปที่ห้อง {channel.mention} เรียบร้อยแล้วครับ!", ephemeral=True)
 
 
-# ----------------- ระบบจัดการห้อง Ticket (ปิดห้อง) -----------------
-
-def has_ticket_permission(interaction: discord.Interaction) -> bool:
-    if interaction.user.guild_permissions.administrator or interaction.user.guild_permissions.manage_channels:
-        return True
-    guild_id = interaction.guild.id
-    if guild_id in ticket_roles:
-        role = interaction.guild.get_role(ticket_roles[guild_id])
-        if role and role in interaction.user.roles:
-            return True
-    return False
+# ----------------- ระบบจัดการห้อง Ticket (ปิดห้องแผงแอดมินรวม) -----------------
 
 class SingleTicketSelect(discord.ui.Select):
     def __init__(self, channels):
@@ -874,20 +980,20 @@ class TicketManageView(discord.ui.View):
                 print(f"Failed: {e}")
         await interaction.followup.send(f"✅ ปิดห้อง Ticket ทั้งหมดสำเร็จ **{closed_count}** ห้องแล้วครับ!", ephemeral=True)
 
-@bot.tree.command(name="set_ticket_role", description="กำหนดว่ายศไหนมีสิทธิ์ใช้ปุ่มจัดการ Ticket")
+@bot.tree.command(name="set_ticket_role", description="กำหนดว่ายศไหนมีสิทธิ์ใช้คำสั่งและปุ่มจัดการต่างๆ")
 @app_commands.describe(role="เลือกยศที่ต้องการให้มีสิทธิ์")
 async def slash_set_ticket_role(interaction: discord.Interaction, role: discord.Role):
     if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ เฉพาะแอดมินเท่านั้นที่ตั้งค่าได้", ephemeral=True)
+        await interaction.response.send_message("❌ เฉพาะแอดมินเท่านั้นที่ตั้งค่าคำสั่งนี้ได้", ephemeral=True)
         return
     ticket_roles[interaction.guild.id] = role.id
-    await interaction.response.send_message(f"✅ ตั้งค่าสำเร็จ! ผู้ที่มียศ **{role.name}** จะสามารถใช้ปุ่มจัดการ Ticket ได้แล้ว", ephemeral=True)
+    await interaction.response.send_message(f"✅ ตั้งค่าสำเร็จ! ผู้ที่มียศ **{role.name}** จะสามารถใช้คำสั่งและจัดการระบบต่างๆ ได้แล้ว", ephemeral=True)
 
 @bot.tree.command(name="setup_ticket", description="ส่งแผงควบคุมระบบปิด Ticket ไปยังห้องแชท")
 @app_commands.describe(channel="เลือกห้องแชทที่ต้องการส่งแผงควบคุม")
 async def slash_setup_ticket(interaction: discord.Interaction, channel: discord.TextChannel):
-    if not interaction.user.guild_permissions.manage_channels:
-        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้", ephemeral=True)
+    if not has_ticket_permission(interaction):
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องเป็นแอดมินหรือมียศที่ได้รับอนุญาตเท่านั้น)", ephemeral=True)
         return
     embed = discord.Embed(
         title="🎫 ระบบจัดการห้อง Ticket",
