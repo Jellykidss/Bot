@@ -626,7 +626,6 @@ class FeedbackStarView(discord.ui.View):
         self.guild_id = guild_id
 
     async def disable_all_buttons(self, interaction: discord.Interaction):
-        # ปิดการใช้งานปุ่มทั้งหมด ป้องกันการกดซ้ำ/สแปม
         for child in self.children:
             child.disabled = True
         try:
@@ -778,16 +777,17 @@ class InTicketControlView(discord.ui.View):
         await interaction.response.send_message(f"🙋‍♂️ แอดมิน **{interaction.user.mention}** เข้ามารับดูแลเคสนี้เรียบร้อยแล้วครับ!")
 
 
-# ----------------- ระบบเปิด Ticket แบบเลือก 3 หมวดหมู่ พร้อมดึงรูป GIF ตามหมวดที่ตั้งไว้ -----------------
+# ----------------- ระบบเปิด Ticket แบบเลือก 3 หมวดหมู่ (แก้ไขให้แสดง "โปรดเลือกหมวดหมู่") -----------------
 
 class OpenTicketSelect(discord.ui.Select):
-    def __init__(self, opt1_label, opt1_desc, opt2_label, opt2_desc, opt3_label, opt3_desc, placeholder_text, role_to_tag1, role_to_tag2, role_to_tag3):
+    def __init__(self, opt1_label, opt1_desc, opt2_label, opt2_desc, opt3_label, opt3_desc, role_to_tag1, role_to_tag2, role_to_tag3):
         options = [
             discord.SelectOption(label=opt1_label, description=opt1_desc, value="buyer", emoji="💵"),
             discord.SelectOption(label=opt2_label, description=opt2_desc, value="sell", emoji="💷"),
             discord.SelectOption(label=opt3_label, description=opt3_desc, value="preorder", emoji="📦")
         ]
-        super().__init__(placeholder=placeholder_text, min_values=1, max_values=1, options=options)
+        # ตั้งค่า Placeholder เริ่มต้นเป็น "📌 โปรดเลือกหมวดหมู่"
+        super().__init__(placeholder="📌 โปรดเลือกหมวดหมู่", min_values=1, max_values=1, options=options)
         self.role_to_tag1 = role_to_tag1
         self.role_to_tag2 = role_to_tag2
         self.role_to_tag3 = role_to_tag3
@@ -838,7 +838,7 @@ class OpenTicketSelect(discord.ui.Select):
             cfg = ticket_configs.get(guild_id, {}).get(choice, {})
             title_val = cfg.get('title', f"THNK FOR {choice.upper()}")
             desc_val = cfg.get('description', f"สวัสดีคุณ {user.mention} กรุณาแจ้งรายละเอียดหรือส่งสลิปได้เลยครับ!")
-            img_val = cfg.get('image', None)  # ดึงรูปภาพ/GIF เฉพาะของหมวดหมู่นั้นๆ
+            img_val = cfg.get('image', None)
 
             embed = discord.Embed(
                 title=title_val,
@@ -848,7 +848,6 @@ class OpenTicketSelect(discord.ui.Select):
             if img_val:
                 embed.set_image(url=img_val)
 
-            # รวบรวมรายชื่อยศที่ต้องการแท็ก
             tag_mentions = [user.mention]
             for r in [self.role_to_tag1, self.role_to_tag2, self.role_to_tag3]:
                 if r:
@@ -863,9 +862,9 @@ class OpenTicketSelect(discord.ui.Select):
             await interaction.followup.send(f"❌ เกิดข้อผิดพลาดในการสร้างห้อง: {e}", ephemeral=True)
 
 class OpenTicketView(discord.ui.View):
-    def __init__(self, opt1_label, opt1_desc, opt2_label, opt2_desc, opt3_label, opt3_desc, placeholder_text, role_to_tag1, role_to_tag2, role_to_tag3):
+    def __init__(self, opt1_label, opt1_desc, opt2_label, opt2_desc, opt3_label, opt3_desc, role_to_tag1, role_to_tag2, role_to_tag3):
         super().__init__(timeout=None)
-        self.add_item(OpenTicketSelect(opt1_label, opt1_desc, opt2_label, opt2_desc, opt3_label, opt3_desc, placeholder_text, role_to_tag1, role_to_tag2, role_to_tag3))
+        self.add_item(OpenTicketSelect(opt1_label, opt1_desc, opt2_label, opt2_desc, opt3_label, opt3_desc, role_to_tag1, role_to_tag2, role_to_tag3))
 
 @bot.tree.command(name="setup_open_ticket", description="ส่งแผงเลือกหมวดหมู่เปิด Ticket พร้อมตั้งค่าแท็กยศ")
 @app_commands.describe(
@@ -876,7 +875,6 @@ class OpenTicketView(discord.ui.View):
     tag_role_3="เลือกยศที่ 3 ที่ต้องการให้แท็กในห้อง Ticket",
     title_text="หัวข้อหลักของ Embed (ด้านนอก)",
     description_text="รายละเอียดใน Embed (ด้านนอก)",
-    placeholder_text="ข้อความเริ่มต้นใน Dropdown",
     opt1_label="ชื่อตัวเลือกที่ 1",
     opt1_desc="คำอธิบายตัวเลือกที่ 1",
     opt2_label="ชื่อตัวเลือกที่ 2",
@@ -893,7 +891,6 @@ async def slash_setup_open_ticket(
     tag_role_3: discord.Role = None,
     title_text: str = "• ˚  ★  // open ticket  • ˚ ‧  ★",
     description_text: str = "เลือกสินค้าด้านล่าง",
-    placeholder_text: str = "💵 Buyer-Money 🔍 เลือกสินค้าด้านล่าง",
     opt1_label: str = "Buyer-Money",
     opt1_desc: str = "สั่งซื้อเงินเอ็ม",
     opt2_label: str = "Sell-money",
@@ -913,7 +910,7 @@ async def slash_setup_open_ticket(
     if image_url:
         embed.set_image(url=image_url)
 
-    view = OpenTicketView(opt1_label, opt1_desc, opt2_label, opt2_desc, opt3_label, opt3_desc, placeholder_text, tag_role_1, tag_role_2, tag_role_3)
+    view = OpenTicketView(opt1_label, opt1_desc, opt2_label, opt2_desc, opt3_label, opt3_desc, tag_role_1, tag_role_2, tag_role_3)
     await channel.send(embed=embed, view=view)
     await interaction.response.send_message(f"✅ ส่งแผงเลือกเปิด Ticket ไปที่ห้อง {channel.mention} เรียบร้อยแล้วครับ!", ephemeral=True)
 
