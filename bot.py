@@ -14,17 +14,16 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ตั้งค่า yt-dlp แบบอัปเดตเพื่อเลี่ยงบอทบล็อก
+# ตั้งค่า yt-dlp โดยใช้ client ชนิดพิเศษเพื่อเลี่ยงการบล็อกบน Cloud
 ytdl_format_options = {
     'format': 'bestaudio/best',
     'noplaylist': True,
     'quiet': True,
     'default_search': 'ytsearch',
     'extract_flat': False,
-    # ปรับใช้ client หลากหลายรูปแบบเพื่อป้องกันการบล็อก IP บน Cloud
     'extractor_args': {
         'youtube': {
-            'player_client': ['ios', 'tv_embedded', 'mweb']
+            'player_client': ['android', 'web']
         }
     },
 }
@@ -101,7 +100,7 @@ async def slash_play(interaction: discord.Interaction, search: str):
 
     try:
         query = search
-        # ดึงข้อมูลชื่อเพลงจากลิงก์ Spotify
+        # ดึงชื่อเพลงอัตโนมัติหากเป็นลิงก์ Spotify
         if "spotify.com" in search:
             import urllib.request
             import json
