@@ -14,14 +14,13 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ตั้งค่า yt-dlp แบบอัปเดตเพื่อหลีกเลี่ยง Bot Detection ของ YouTube
+# ตั้งค่า yt-dlp สำหรับค้นหาและดึงเสียงเพลง
 ytdl_format_options = {
     'format': 'bestaudio/best',
     'noplaylist': True,
     'quiet': True,
     'default_search': 'ytsearch',
     'extract_flat': False,
-    # ใช้ client ที่จำลองการใช้งานเพื่อแก้ปัญหา Sign in to confirm
     'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
 }
 
@@ -31,7 +30,7 @@ ffmpeg_options = {
 
 ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
 
-# ตัวแปรสำหรับเก็บสถานะการวนซ้ำเพลง (แยกตามแต่ละ Guild)
+# ตัวแปรเก็บสถานะการวนซ้ำเพลง
 loop_status = {}
 
 @bot.event
@@ -74,8 +73,8 @@ async def slash_leave(interaction: discord.Interaction):
         await interaction.response.send_message("บอทไม่ได้อยู่ในห้องเสียงในขณะนี้ครับ!", ephemeral=True)
 
 # --- Slash Command: /play ---
-@bot.tree.command(name="play", description="เล่นเพลงจาก Spotify หรือ YouTube")
-@app_commands.describe(search="วางลิงก์ Spotify / YouTube หรือพิมพ์ชื่อเพลง")
+@bot.tree.command(name="play", description="เล่นเพลงจากชื่อเพลงหรือลิงก์ Spotify")
+@app_commands.describe(search="พิมพ์ชื่อเพลง ศิลปิน หรือวางลิงก์เพลงจาก Spotify")
 async def slash_play(interaction: discord.Interaction, search: str):
     if not interaction.user.voice or not interaction.user.voice.channel:
         await interaction.response.send_message("คุณต้องอยู่ในห้องเสียงก่อนจึงจะเปิดเพลงได้!", ephemeral=True)
@@ -96,8 +95,23 @@ async def slash_play(interaction: discord.Interaction, search: str):
         await voice_client.move_to(channel)
 
     try:
+        query = search
+        # ถ้าผู้ใช้ส่งลิงก์ Spotify มา ให้ดึงข้อมูลหน้าเว็บมาแปลงเป็นชื่อเพลงและศิลปินเพื่อค้นหาอัตโนมัติ
+        if "spotify.com" in search:
+            import urllib.request
+            import json
+            try:
+                # ดึง OEmbed metadata จาก Spotify โดยตรงเพื่อเอาชื่อเพลงและศิลปิน
+                oembed_url = f"https://open.spotify.com/oembed?url={search}"
+                req = urllib.request.Request(oembed_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req) as response:
+                    data_json = json.loads(response.read().decode())
+                    query = data_json.get('title', search) # ได้ชื่อเพลงและศิลปินจาก Spotify มาค้นหา
+            except Exception as err:
+                print(f"Spotify oembed error: {err}")
+
         loop = asyncio.get_event_loop()
-        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(search, download=False))
+        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(query, download=False))
         
         if 'entries' in data:
             data = data['entries'][0]
