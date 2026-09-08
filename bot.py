@@ -14,9 +14,6 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# กำหนดไอดีห้องเสียงเป้าหมายที่คุณต้องการให้บอทเข้าอัตโนมัติ
-TARGET_CHANNEL_ID = 1546510895813886002
-
 # ตั้งค่า yt-dlp สำหรับดึงเสียงจาก YouTube
 ytdl_format_options = {
     'format': 'bestaudio/best',
@@ -41,16 +38,6 @@ async def on_ready():
         print(f"Synced {len(synced)} command(s)")
     except Exception as e:
         print(f"Failed to sync commands: {e}")
-
-    # เชื่อมต่อเข้าห้องเสียงเป้าหมายอัตโนมัติเมื่อบอทออนไลน์
-    channel = bot.get_channel(TARGET_CHANNEL_ID)
-    if channel and isinstance(channel, discord.VoiceChannel):
-        if not discord.utils.get(bot.voice_clients, guild=channel.guild):
-            try:
-                await channel.connect()
-                print(f"Connected to voice channel: {channel.name}")
-            except Exception as e:
-                print(f"เกิดข้อผิดพลาดในการเชื่อมต่อเสียง: {e}")
 
 # --- Slash Command: /join ---
 @bot.tree.command(name="join", description="ให้บอทเชื่อมต่อเข้าห้องเสียง")
