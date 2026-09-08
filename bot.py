@@ -34,6 +34,7 @@ queues = {}
 loop_status = {}
 current_song = {}
 ticket_roles = {}
+feedback_channels = {}  # เก็บห้องรีวิวสาธารณะ
 
 @bot.event
 async def on_ready():
@@ -228,6 +229,7 @@ async def slash_stop(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("บอทไม่ได้อยู่ในห้องเสียงครับ!", ephemeral=True)
 
+
 # ----------------- ระบบประกาศข้อความ (Modal) -----------------
 class AnnouncementModal(discord.ui.Modal, title="สร้างข้อความประกาศ"):
     def __init__(self, channel: discord.TextChannel):
@@ -303,13 +305,13 @@ async def slash_edit_announcement(interaction: discord.Interaction, channel: dis
         await interaction.response.send_message(f"❌ เกิดข้อผิดพลาด: {e}", ephemeral=True)
 
 
-# ----------------- ระบบขั้นสูง: ปุ่มกดรับยศ & Dropdown (Role Panel) -----------------
+# ----------------- ระบบรับยศ (Role Panel & Dropdown) -----------------
 
 class SingleRoleButtonView(discord.ui.View):
     def __init__(self, role: discord.Role, mode: str, button_label: str, emoji: str):
         super().__init__(timeout=None)
         self.role = role
-        self.mode = mode # 'toggle' หรือ 'claim_only'
+        self.mode = mode 
         
         btn_style = discord.ButtonStyle.success if mode == 'claim_only' else discord.ButtonStyle.primary
         self.btn = discord.ui.Button(
@@ -328,7 +330,7 @@ class SingleRoleButtonView(discord.ui.View):
             else:
                 await interaction.user.add_roles(self.role)
                 await interaction.response.send_message(f"✅ รับยศ **{self.role.name}** เรียบร้อยแล้วครับ!", ephemeral=True)
-        else: # toggle
+        else: 
             if self.role in interaction.user.roles:
                 await interaction.user.remove_roles(self.role)
                 await interaction.response.send_message(f"❌ ถอดรยศ **{self.role.name}** ออกจากคุณแล้วครับ", ephemeral=True)
@@ -347,7 +349,6 @@ class MultiRoleSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        guild = interaction.guild
         added_roles = []
         removed_roles = []
         
@@ -378,20 +379,20 @@ class MultiRoleSelectView(discord.ui.View):
         self.add_item(MultiRoleSelect(roles_list))
 
 
-@bot.tree.command(name="setup_role_panel", description="สร้างแผงรับยศ (เลือกปุ่มเดี่ยว, ปุ่มกดครั้งเดียวถอดไม่ได้ หรือเมนู Dropdown เลือกหลายยศ)")
+@bot.tree.command(name="setup_role_panel", description="สร้างแผงรับยศ (เลือกปุ่มเดี่ยว หรือเมนู Dropdown เลือกหลายยศ)")
 @app_commands.describe(
     channel="ห้องแชทที่ต้องการส่งแผง",
     panel_type="เลือกประเภทแผงยศ",
-    role_1="ยศที่ 1 (จำเป็นสำหรับปุ่มเดี่ยว / เลือกใส่เพิ่มได้สำหรับ Dropdown)",
+    role_1="ยศที่ 1",
     role_2="ยศที่ 2 (สำหรับ Dropdown)",
     role_3="ยศที่ 3 (สำหรับ Dropdown)",
     mode="(สำหรับปุ่มเดี่ยว) toggle=กดเปิด-ปิดได้เอง, claim_only=กดรับครั้งเดียวถอดไม่ได้",
     title_text="หัวข้อหลักของ Embed",
-    description_text="รายละเอียดเพิ่มเติม / คำอธิบายในกรอบ",
+    description_text="รายละเอียดเพิ่มเติม",
     color="สีของกรอบ (green, red, blue, gold, purple)",
     image_url="ลิงก์รูปภาพ หรือ GIF ตกแต่ง",
-    button_label="ข้อความบนปุ่ม (ถ้ามี)",
-    emoji="อีโมจิปุ่ม (ถ้ามี)"
+    button_label="ข้อความบนปุ่ม",
+    emoji="อีโมจิปุ่ม"
 )
 @app_commands.choices(panel_type=[
     app_commands.Choice(name="ปุ่มกด (Single Button)", value="button"),
@@ -419,7 +420,6 @@ async def slash_setup_role_panel(
         await interaction.response.send_message("❌ คำสั่งนี้ต้องใช้สิทธิ์ผู้ดูแลระบบเท่านั้น", ephemeral=True)
         return
 
-    # แปลงสี
     embed_color = discord.Color.blurple()
     c_lower = color.lower()
     if c_lower == "green": embed_color = discord.Color.green()
@@ -427,33 +427,26 @@ async def slash_setup_role_panel(
     elif c_lower == "gold": embed_color = discord.Color.gold()
     elif c_lower == "purple": embed_color = discord.Color.purple()
 
-    embed = discord.Embed(
-        title=title_text,
-        description=description_text,
-        color=embed_color
-    )
+    embed = discord.Embed(title=title_text, description=description_text, color=embed_color)
     if image_url:
         embed.set_image(url=image_url)
 
     selected_type = panel_type.value
-
     if selected_type == "button":
         chosen_mode = mode.value if mode else "toggle"
         view = SingleRoleButtonView(role_1, chosen_mode, button_label, emoji)
         await channel.send(embed=embed, view=view)
         await interaction.response.send_message(f"✅ สร้างแผงปุ่มกดรับยศ **{role_1.name}** ไปที่ห้อง {channel.mention} เรียบร้อยแล้วครับ!", ephemeral=True)
-
     elif selected_type == "dropdown":
         roles_list = [role_1]
         if role_2: roles_list.append(role_2)
         if role_3: roles_list.append(role_3)
-
         view = MultiRoleSelectView(roles_list)
         await channel.send(embed=embed, view=view)
         await interaction.response.send_message(f"✅ สร้างแผง Dropdown เลือกหลายยศไปที่ห้อง {channel.mention} เรียบร้อยแล้วครับ!", ephemeral=True)
 
 
-# ----------------- ระบบจัดการ Ticket -----------------
+# ----------------- ระบบ Ticket & รีวิวความพึงพอใจ -----------------
 
 def has_ticket_permission(interaction: discord.Interaction) -> bool:
     if interaction.user.guild_permissions.administrator or interaction.user.guild_permissions.manage_channels:
@@ -464,6 +457,156 @@ def has_ticket_permission(interaction: discord.Interaction) -> bool:
         if role and role in interaction.user.roles:
             return True
     return False
+
+@bot.tree.command(name="set_feedback_channel", description="กำหนดห้องรีวิวสาธารณะ")
+@app_commands.describe(channel="เลือกห้องแชทที่จะให้แสดงรีวิว")
+async def slash_set_feedback_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ เฉพาะแอดมินเท่านั้นที่ตั้งค่าได้", ephemeral=True)
+        return
+    feedback_channels[interaction.guild.id] = channel.id
+    await interaction.response.send_message(f"✅ ตั้งค่าห้องรีวิวสำเร็จที่ห้อง {channel.mention}", ephemeral=True)
+
+async def send_feedback_panel(guild: discord.guild, member_id: int):
+    try:
+        user = guild.get_member(member_id)
+        if not user:
+            user = await guild.fetch_member(member_id)
+        if user:
+            embed = discord.Embed(
+                title="⭐ ให้คะแนนและเขียนรีวิวการบริการ",
+                description="ห้อง Ticket ของคุณถูกปิดเรียบร้อยแล้ว\nกรุณากดปุ่มเลือกดาวด้านล่างเพื่อเขียนรีวิวการบริการครับ:",
+                color=discord.Color.gold()
+            )
+            view = FeedbackStarView(guild.id)
+            await user.send(embed=embed, view=view)
+    except Exception as e:
+        print(f"Could not send DM feedback: {e}")
+
+class ReviewModal(discord.ui.Modal):
+    def __init__(self, guild_id: int, stars: int):
+        super().__init__(title=f"เขียนรีวิว ({'⭐' * stars})")
+        self.guild_id = guild_id
+        self.stars = stars
+
+    review_text = discord.ui.TextInput(
+        label="ความคิดเห็น / ข้อเสนอแนะ",
+        style=discord.TextStyle.paragraph,
+        placeholder="พิมพ์รีวิวบริการของคุณที่นี่...",
+        required=True,
+        max_length=1000
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.send_message("🙏 ขอบคุณสำหรับคะแนนและรีวิวของคุณครับ!", ephemeral=True)
+        
+        # ส่งรีวิวตรงไปที่ห้องรีวิวสาธารณะทันที!
+        if self.guild_id in feedback_channels:
+            channel_id = feedback_channels[self.guild_id]
+            channel = interaction.client.get_channel(channel_id)
+            if channel:
+                star_str = "⭐" * self.stars
+                embed = discord.Embed(
+                    title="📝 รีวิวการให้บริการจากลูกค้า",
+                    description=f"**ผู้รีวิว:** {interaction.user.mention}\n**คะแนน:** {star_str} ({self.stars}/5 ดาว)\n\n**รีวิว:**\n{self.review_text.value}",
+                    color=discord.Color.gold()
+                )
+                embed.set_footer(text=f"User ID: {interaction.user.id} | ยังไม่แนบสลิป", icon_url=interaction.user.display_avatar.url)
+                
+                # ส่งพร้อมปุ่มให้แอดมินกดใส่รูปทีหลังได้ทันทีใต้ข้อความนั้นๆ
+                view = AdminAddSlipView()
+                await channel.send(embed=embed, view=view)
+
+class FeedbackStarView(discord.ui.View):
+    def __init__(self, guild_id: int):
+        super().__init__(timeout=None)
+        self.guild_id = guild_id
+
+    @discord.ui.button(label="⭐ 1 ดาว", style=discord.ButtonStyle.danger, custom_id="fb_1")
+    async def rating_1(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ReviewModal(self.guild_id, 1))
+
+    @discord.ui.button(label="⭐⭐ 2 ดาว", style=discord.ButtonStyle.secondary, custom_id="fb_2")
+    async def rating_2(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ReviewModal(self.guild_id, 2))
+
+    @discord.ui.button(label="⭐⭐⭐ 3 ดาว", style=discord.ButtonStyle.secondary, custom_id="fb_3")
+    async def rating_3(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ReviewModal(self.guild_id, 3))
+
+    @discord.ui.button(label="⭐⭐⭐⭐ 4 ดาว", style=discord.ButtonStyle.success, custom_id="fb_4")
+    async def rating_4(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ReviewModal(self.guild_id, 4))
+
+    @discord.ui.button(label="⭐⭐⭐⭐⭐ 5 ดาว", style=discord.ButtonStyle.success, custom_id="fb_5")
+    async def rating_5(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ReviewModal(self.guild_id, 5))
+
+
+# ----------------- ระบบแอดมินคลิกเพิ่มรูปสลิปที่ข้อความรีวิวโดยตรง -----------------
+
+class EditSlipModal(discord.ui.Modal, title="เพิ่ม/แก้ไขรูปสลิปในรีวิว"):
+    def __init__(self, message: discord.Message):
+        super().__init__()
+        self.message = message
+
+    slip_link = discord.ui.TextInput(
+        label="ลิงก์รูปสลิป (ที่ปิดชื่อแล้ว)",
+        style=discord.TextStyle.short,
+        placeholder="วางลิงก์รูปภาพ เช่น https://imgur.com/...",
+        required=True,
+        max_length=500
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not has_ticket_permission(interaction):
+            await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้", ephemeral=True)
+            return
+
+        try:
+            link = self.slip_link.value.strip()
+            if not (link.startswith("http://") or link.startswith("https://")):
+                await interaction.response.send_message("❌ ลิงก์รูปภาพไม่ถูกต้อง ต้องเริ่มต้นด้วย http:// หรือ https://", ephemeral=True)
+                return
+
+            await interaction.response.defer(ephemeral=True)
+
+            if self.message.embeds:
+                embed = self.message.embeds[0]
+                embed.set_image(url=link)
+                # อัปเดต footer แจ้งว่ามีสลิปแล้ว
+                current_footer = embed.footer.text if embed.footer else ""
+                base_footer = current_footer.split(" | ")[0] if " | " in current_footer else current_footer
+                embed.set_footer(text=f"{base_footer} | ✅ แนบสลิปแล้วโดย {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
+                
+                # อัปเดตข้อความเดิมทันทีโดยไม่ต้องเปลี่ยนห้อง
+                await self.message.edit(embed=embed)
+
+            await interaction.followup.send("✅ อัปเดตใส่รูปสลิปในรีวิวนี้เรียบร้อยแล้วครับ!", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ เกิดข้อผิดพลาด: {e}", ephemeral=True)
+
+class AdminAddSlipView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🖼️ เพิ่ม/แก้ไขรูปสลิป", style=discord.ButtonStyle.success, custom_id="admin_edit_slip_btn")
+    async def edit_slip_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not has_ticket_permission(interaction):
+            await interaction.response.send_message("❌ คุณไม่มีสิทธิ์กดปุ่มนี้", ephemeral=True)
+            return
+        await interaction.response.send_modal(EditSlipModal(interaction.message))
+
+# รองรับคลิกขวาที่ข้อความเพื่อเพิ่มรูปสลิปได้ด้วยเช่นกัน
+@bot.tree.context_menu(name="เพิ่มรูปสลิปรีวิว")
+async def context_add_slip(interaction: discord.Interaction, message: discord.Message):
+    if not has_ticket_permission(interaction):
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้", ephemeral=True)
+        return
+    await interaction.response.send_modal(EditSlipModal(message))
+
+
+# ----------------- ระบบจัดการห้อง Ticket -----------------
 
 class SingleTicketSelect(discord.ui.Select):
     def __init__(self, channels):
@@ -479,8 +622,13 @@ class SingleTicketSelect(discord.ui.Select):
         if ch:
             try:
                 name = ch.name
+                owner_id = int(ch.topic) if ch.topic and ch.topic.isdigit() else None
+
                 await ch.delete(reason=f"Closed by {interaction.user}")
                 await interaction.followup.send(f"🗑️ ปิดห้อง Ticket **{name}** เรียบร้อยแล้วครับ!", ephemeral=True)
+                
+                if owner_id:
+                    await send_feedback_panel(interaction.guild, owner_id)
             except Exception as e:
                 await interaction.followup.send(f"❌ ไม่สามารถปิดห้องนี้ได้: {e}", ephemeral=True)
         else:
@@ -506,8 +654,11 @@ class MultiTicketSelect(discord.ui.Select):
             ch = interaction.guild.get_channel(int(channel_id))
             if ch:
                 try:
+                    owner_id = int(ch.topic) if ch.topic and ch.topic.isdigit() else None
                     await ch.delete(reason=f"Multi-closed by {interaction.user}")
                     closed_count += 1
+                    if owner_id:
+                        asyncio.create_task(send_feedback_panel(interaction.guild, owner_id))
                     await asyncio.sleep(0.4)
                 except Exception as e:
                     print(f"Failed: {e}")
@@ -552,13 +703,16 @@ class TicketManageView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         channels_to_delete = [ch for ch in interaction.guild.text_channels if "ticket" in ch.name.lower() or "تيكيت" in ch.name.lower()]
         if not channels_to_delete:
-            await interaction.followup.send("⚠️ ไม่พบห้อง Ticket ที่ต้องปิด", ephemeral=True)
+            await interaction.followup.send("⚠️ ไม่พบห้อง Ticket ที่ต้องปิด", ephemeral=TaskPoolChannel) # type: ignore
             return
         closed_count = 0
         for ch in channels_to_delete:
             try:
+                owner_id = int(ch.topic) if ch.topic and ch.topic.isdigit() else None
                 await ch.delete(reason=f"Bulk closed by {interaction.user}")
                 closed_count += 1
+                if owner_id:
+                    asyncio.create_task(send_feedback_panel(interaction.guild, owner_id))
                 await asyncio.sleep(0.5)
             except Exception as e:
                 print(f"Failed: {e}")
@@ -584,7 +738,8 @@ async def slash_setup_ticket(interaction: discord.Interaction, channel: discord.
         description="เลือกปุ่มด้านล่างเพื่อจัดการปิดห้อง Ticket:",
         color=discord.Color.blurple()
     )
-    await channel.send(embed=embed, view=TicketManageView())
+    window_view = TicketManageView()
+    await channel.send(embed=embed, view=window_view)
     await interaction.response.send_message(f"✅ ส่งแผงควบคุมไปที่ห้อง {channel.mention} เรียบร้อยแล้ว!", ephemeral=True)
 
 
