@@ -16,20 +16,14 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ตั้งค่า yt-dlp พร้อมจำลอง Browser เพื่อลดโอกาสโดนบล็อก
+# ตั้งค่า yt-dlp สำหรับค้นหาและดึงเสียงจาก SoundCloud โดยตรง
 ytdl_format_options = {
     'format': 'bestaudio/best',
     'noplaylist': True,
     'quiet': True,
-    'default_search': 'ytsearch',
+    'default_search': 'scsearch',  # เปลี่ยนให้ค้นหาผ่าน SoundCloud ทันทีเมื่อพิมพ์ชื่อเพลง
     'extract_flat': False,
     'socket_timeout': 15,
-    'http_headers': {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-us,en;q=0.5',
-        'Sec-Fetch-Mode': 'navigate',
-    }
 }
 
 ffmpeg_options = {
@@ -81,8 +75,8 @@ async def slash_leave(interaction: discord.Interaction):
         await interaction.response.send_message("บอทไม่ได้อยู่ในห้องเสียงในขณะนี้ครับ!", ephemeral=True)
 
 # --- Slash Command: /play ---
-@bot.tree.command(name="play", description="เล่นเพลงจากชื่อเพลงหรือลิงก์ Spotify")
-@app_commands.describe(search="พิมพ์ชื่อเพลง ศิลปิน หรือวางลิงก์เพลงจาก Spotify")
+@bot.tree.command(name="play", description="เล่นเพลงจากชื่อเพลงหรือลิงก์ SoundCloud/Spotify")
+@app_commands.describe(search="พิมพ์ชื่อเพลง ศิลปิน หรือวางลิงก์เพลง")
 async def slash_play(interaction: discord.Interaction, search: str):
     if not interaction.user.voice or not interaction.user.voice.channel:
         await interaction.response.send_message("คุณต้องอยู่ในห้องเสียงก่อนจึงจะเปิดเพลงได้!", ephemeral=True)
@@ -104,7 +98,7 @@ async def slash_play(interaction: discord.Interaction, search: str):
 
     try:
         query = search
-        # แปลงลิงก์ Spotify เป็นชื่อเพลง
+        # ถ้าเป็นลิงก์ Spotify ให้ดึงชื่อเพลงมาค้นหาใน SoundCloud ต่อ
         if "spotify.com" in search:
             try:
                 oembed_url = f"https://open.spotify.com/oembed?url={search}"
@@ -141,7 +135,7 @@ async def slash_play(interaction: discord.Interaction, search: str):
         player = discord.FFmpegPCMAudio(song_url, **ffmpeg_options)
         voice_client.play(player, after=play_next)
 
-        await interaction.followup.send(f"กำลังเล่นเพลง: **{song_title}** 🎵")
+        await interaction.followup.send(f"กำลังเล่นเพลงจาก SoundCloud: **{song_title}** 🎵")
     except Exception as e:
         await interaction.followup.send(f"เกิดข้อผิดพลาดในการเล่นเพลง: {e}")
 
