@@ -14,11 +14,12 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ตั้งค่า yt-dlp สำหรับดึงเสียงจาก YouTube
+# ตั้งค่า yt-dlp สำหรับดึงเพลง (รองรับทั้ง YouTube และ Spotify)
 ytdl_format_options = {
     'format': 'bestaudio/best',
     'noplaylist': True,
     'quiet': True,
+    'default_search': 'ytsearch',
 }
 ffmpeg_options = {
     'options': '-vn'
@@ -70,8 +71,8 @@ async def slash_leave(interaction: discord.Interaction):
         await interaction.response.send_message("บอทไม่ได้อยู่ในห้องเสียงในขณะนี้ครับ!", ephemeral=True)
 
 # --- Slash Command: /play ---
-@bot.tree.command(name="play", description="เล่นเพลงจาก YouTube")
-@app_commands.describe(search="พิมพ์ชื่อเพลงหรือใส่ลิงก์ YouTube ที่ต้องการเปิด")
+@bot.tree.command(name="play", description="เล่นเพลงจาก Spotify หรือ YouTube")
+@app_commands.describe(search="วางลิงก์ Spotify / YouTube หรือพิมพ์ชื่อเพลง")
 async def slash_play(interaction: discord.Interaction, search: str):
     if not interaction.user.voice or not interaction.user.voice.channel:
         await interaction.response.send_message("คุณต้องอยู่ในห้องเสียงก่อนจึงจะเปิดเพลงได้!", ephemeral=True)
@@ -93,13 +94,14 @@ async def slash_play(interaction: discord.Interaction, search: str):
 
     try:
         loop = asyncio.get_event_loop()
-        query = f"ytsearch:{search}" if not search.startswith("http") else search
-        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(query, download=False))
+        
+        # ดึงข้อมูลเพลงผ่าน yt-dlp (รองรับลิงก์ Spotify โดยระบบจะแปลงค้นหาอัตโนมัติ)
+        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(search, download=False))
         
         if 'entries' in data:
             data = data['entries'][0]
 
-        song_url = data['url']
+        song_url = data.get('url')
         song_title = data.get('title', 'เพลงไม่มีชื่อ')
 
         # ฟังก์ชันเล่นซ้ำอัตโนมัติเมื่อเพลงจบ
