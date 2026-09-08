@@ -227,18 +227,18 @@ async def slash_stop(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("บอทไม่ได้อยู่ในห้องเสียงครับ!", ephemeral=True)
 
-# ----------------- ระบบประกาศข้อความ (Modal) -----------------
+# ----------------- ระบบประกาศข้อความ (Modal) รองรับพิมพ์ยาวสูงสุด 4000 ตัวอักษร -----------------
 class AnnouncementModal(discord.ui.Modal, title="สร้างข้อความประกาศ"):
     def __init__(self, channel: discord.TextChannel):
         super().__init__()
         self.channel = channel
 
     announcement_text = discord.ui.TextInput(
-        label="เนื้อหาประกาศ (กด Enter เพื่อขึ้นบรรทัดใหม่ได้)",
+        label="เนื้อหาประกาศ",
         style=discord.TextStyle.paragraph,
         placeholder="พิมพ์ข้อความของคุณที่นี่...",
         required=True,
-        max_length=3500
+        max_length=4000  # ขยายให้พิมพ์ได้ยาวสูงสุดเท่าที่ Discord อนุญาต
     )
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -259,7 +259,7 @@ async def slash_announcement(interaction: discord.Interaction, channel: discord.
         return
     await interaction.response.send_modal(AnnouncementModal(channel))
 
-# ----------------- ระบบแก้ไขข้อความประกาศ (Modal) -----------------
+# ----------------- ระบบแก้ไขข้อความประกาศ (Modal) รองรับพิมพ์ยาวสูงสุด 4000 ตัวอักษร -----------------
 class EditAnnouncementModal(discord.ui.Modal, title="แก้ไขข้อความประกาศ"):
     def __init__(self, channel: discord.TextChannel, message_id: str, old_content: str):
         super().__init__()
@@ -268,11 +268,11 @@ class EditAnnouncementModal(discord.ui.Modal, title="แก้ไขข้อค
         self.new_announcement_text.default = old_content
 
     new_announcement_text = discord.ui.TextInput(
-        label="เนื้อหาใหม่ (กด Enter เพื่อขึ้นบรรทัดใหม่ได้)",
+        label="เนื้อหาใหม่",
         style=discord.TextStyle.paragraph,
         placeholder="แก้ไขข้อความของคุณที่นี่...",
         required=True,
-        max_length=3500
+        max_length=4000  # ขยายให้พิมพ์ได้ยาวสูงสุดเท่าที่ Discord อนุญาต
     )
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -320,13 +320,13 @@ async def slash_edit_announcement(interaction: discord.Interaction, channel: dis
         await interaction.response.send_message(f"❌ เกิดข้อผิดพลาด: {e}", ephemeral=True)
 
 
-# ----------------- ระบบจัดการ Ticket แบบ Pop-up เมนูรวม 3 โหมด (รองรับการ Setup หน้าห้อง) -----------------
+# ----------------- ระบบจัดการ Ticket แบบ Pop-up เมนูรวม 3 โหมด -----------------
 
 # 1. Select Menu สำหรับปิดห้องเดี่ยว
 class SingleTicketSelect(discord.ui.Select):
     def __init__(self, channels):
         options = [discord.SelectOption(label=ch.name[:100], value=str(ch.id), description=f"หมวดหมู่: {ch.category.name if ch.category else 'ไม่มี'}") for ch in channels[:25]]
-        super().__init__(placeholder="📌 เลือกห้อง Ticket ที่ต้องการปิด (1 ห้อง)", min_values=1, max_values=1, options=options)
+        super().__init__(placeholder="📌 เลือกห้อง Ticket ที่ต้องการปิด", min_values=1, max_values=1, options=options)
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -351,7 +351,7 @@ class SingleTicketView(discord.ui.View):
 class MultiTicketSelect(discord.ui.Select):
     def __init__(self, channels):
         options = [discord.SelectOption(label=ch.name[:100], value=str(ch.id), description=f"หมวดหมู่: {ch.category.name if ch.category else 'ไม่มี'}") for ch in channels[:25]]
-        super().__init__(placeholder="📌 เลือกห้อง Ticket ที่ต้องการปิด (เลือกได้หลายห้อง)", min_values=1, max_values=len(options), options=options)
+        super().__init__(placeholder="📌 เลือกห้อง Ticket ที่ต้องการปิด", min_values=1, max_values=len(options), options=options)
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -377,7 +377,7 @@ class MultiTicketView(discord.ui.View):
 # 3. หน้าต่างหลัก Pop-up เลือกโหมดจัดการ Ticket
 class TicketManageView(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=None) # timeout=None ทำให้ปุ่มที่ส่งหน้าห้องไม่หมดอายุ
+        super().__init__(timeout=None)
 
     @discord.ui.button(label="🗑️ ปิดห้องเดียว", style=discord.ButtonStyle.primary, custom_id="persistent_btn_single")
     async def btn_single(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -421,7 +421,7 @@ class TicketManageView(discord.ui.View):
 
 
 # คำสั่งตั้งค่าแผงควบคุม (Setup Panel) ไว้ในห้องแชทให้ทุกคนเห็น
-@bot.tree.command(name="setup_ticket", description="ส่งแผงควบคุมระบบ Ticket (ปุ่มถาวร) ไปยังห้องแชทที่เลือก")
+@bot.tree.command(name="setup_ticket", description="ส่งแผงควบคุมระบบ Ticket ไปยังห้องแชทที่เลือก")
 @app_commands.describe(channel="เลือกห้องแชทที่ต้องการส่งแผงควบคุมปุ่มนี้ไป")
 async def slash_setup_ticket(interaction: discord.Interaction, channel: discord.TextChannel):
     if not interaction.user.guild_permissions.manage_channels:
@@ -429,7 +429,7 @@ async def slash_setup_ticket(interaction: discord.Interaction, channel: discord.
         return
 
     embed = discord.Embed(
-        title="🎫 ระบบจัดการห้อง Ticket (Ticket Management Panel)",
+        title="🎫 ระบบจัดการห้อง Ticket",
         description=(
             "ยินดีต้อนรับสู่ระบบจัดการ Ticket ของเซิร์ฟเวอร์\n"
             "คุณสามารถเลือกกดปุ่มด้านล่างนี้เพื่อจัดการปิดห้อง Ticket ได้ทันที:\n\n"
@@ -445,7 +445,7 @@ async def slash_setup_ticket(interaction: discord.Interaction, channel: discord.
     await interaction.response.send_message(f"✅ ส่งแผงควบคุมระบบ Ticket ไปยังห้อง {channel.mention} เรียบร้อยแล้วครับ!", ephemeral=True)
 
 
-# คำสั่งเดิมแบบ Pop-up ส่วนตัว (เผื่อต้องการเรียกใช้แบบเร่งด่วน)
+# คำสั่งเดิมแบบ Pop-up ส่วนตัว
 @bot.tree.command(name="ticket_manage", description="เปิดหน้าต่าง Pop-up เลือกวิธีปิดห้อง Ticket ส่วนตัว")
 async def slash_ticket_manage(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.manage_channels:
