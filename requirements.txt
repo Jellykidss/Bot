@@ -1,4 +1,4 @@
 discord.py[voice]
 PyNaCl
-yt-dlp
+yt-dlp>=2024.03.10
 flask
