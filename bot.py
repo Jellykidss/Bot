@@ -30,7 +30,6 @@ ffmpeg_options = {
 
 ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
 
-# ระบบเก็บข้อมูลคิว, สถานะ Loop และเพลงปัจจุบัน
 queues = {}
 loop_status = {}
 current_song = {}
@@ -79,17 +78,25 @@ def play_next(guild_id, voice_client):
     if guild_id not in queues:
         queues[guild_id] = []
     
-    # ถ้าเปิด loop เพลงปัจจุบันไว้ ให้เล่นเพลงเดิมซ้ำ
+    # ถ้าเปิด loop อยู่ ให้ดึงข้อมูลเพลงใหม่เพื่อแก้ปัญหาลิงก์หมดอายุ (403 Forbidden)
     if loop_status.get(guild_id, False) and guild_id in current_song:
-        song_url = current_song[guild_id]['url']
         try:
-            player = discord.FFmpegPCMAudio(song_url, **ffmpeg_options)
-            voice_client.play(player, after=lambda e: play_next(guild_id, voice_client))
-            return
+            query = current_song[guild_id]['title']
+            data = ytdl.extract_info(query, download=False)
+            if 'entries' in data:
+                song_data = data['entries'][0]
+            else:
+                song_data = data
+            
+            fresh_url = song_data.get('url')
+            if fresh_url:
+                player = discord.FFmpegPCMAudio(fresh_url, **ffmpeg_options)
+                voice_client.play(player, after=lambda e: play_next(guild_id, voice_client))
+                return
         except Exception as e:
-            print(f"Error looping song: {e}")
+            print(f"Error refreshing loop song: {e}")
 
-    # ถ้ามีเพลงในคิว ให้หยิบเพลงถัดมาเล่น
+    # เล่นเพลงถัดไปในคิว
     if len(queues[guild_id]) > 0:
         next_song = queues[guild_id].pop(0)
         current_song[guild_id] = next_song
@@ -162,7 +169,6 @@ async def slash_play(interaction: discord.Interaction, search: str):
         if guild_id not in queues:
             queues[guild_id] = []
 
-        # ถ้าบอทกำลังเล่นเพลงอยู่ ให้เพิ่มเข้าไปในคิว
         if voice_client.is_playing() or voice_client.is_paused():
             queues[guild_id].append(song_info)
             queue_position = len(queues[guild_id])
@@ -180,7 +186,7 @@ async def slash_play(interaction: discord.Interaction, search: str):
 async def slash_skip(interaction: discord.Interaction):
     voice_client = discord.utils.get(bot.voice_clients, guild=interaction.guild)
     if voice_client and voice_client.is_playing():
-        voice_client.stop()  # สั่งหยุดเพลงปัจจุบัน ระบบจะสลับไปเล่นเพลงถัดไปในคิวอัตโนมัติ
+        voice_client.stop()
         await interaction.response.send_message("⏭️ ข้ามเพลงเรียบร้อยแล้วครับ!", ephemeral=True)
     else:
         await interaction.response.send_message("ไม่มีเพลงกำลังเล่นอยู่ให้ข้ามครับ!", ephemeral=True)
