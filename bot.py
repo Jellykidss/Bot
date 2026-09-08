@@ -8,7 +8,6 @@ import urllib.request
 import json
 from keep_alive import keep_alive
 
-# กำหนด Intent ของบอท
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
@@ -16,12 +15,12 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ตั้งค่า yt-dlp และเพิ่มเงื่อนไขข้ามเพลงที่ติด DRM หรือใช้งานไม่ได้
+# ตั้งค่า yt-dlp ค้นหาเผื่อไว้ 10 ผลลัพธ์เพื่อเลือกตัวที่เล่นได้
 ytdl_format_options = {
     'format': 'bestaudio/best',
     'noplaylist': True,
     'quiet': True,
-    'default_search': 'scsearch5', # ค้นหามา 5 ผลลัพธ์แรก เพื่อเลือกตัวที่ไม่ติด DRM
+    'default_search': 'scsearch10',
     'extract_flat': False,
     'socket_timeout': 15,
 }
@@ -31,8 +30,6 @@ ffmpeg_options = {
 }
 
 ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
-
-# ตัวแปรเก็บสถานะการวนซ้ำเพลง
 loop_status = {}
 
 @bot.event
@@ -44,7 +41,6 @@ async def on_ready():
     except Exception as e:
         print(f"Failed to sync commands: {e}")
 
-# --- Slash Command: /join ---
 @bot.tree.command(name="join", description="ให้บอทเชื่อมต่อเข้าห้องเสียง")
 async def slash_join(interaction: discord.Interaction):
     if interaction.user.voice and interaction.user.voice.channel:
@@ -63,7 +59,6 @@ async def slash_join(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("คุณต้องอยู่ในห้องเสียงก่อนจึงจะใช้คำสั่งนี้ได้!", ephemeral=True)
 
-# --- Slash Command: /leave ---
 @bot.tree.command(name="leave", description="ให้บอทออกจากห้องเสียง")
 async def slash_leave(interaction: discord.Interaction):
     voice_client = discord.utils.get(bot.voice_clients, guild=interaction.guild)
@@ -74,7 +69,6 @@ async def slash_leave(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("บอทไม่ได้อยู่ในห้องเสียงในขณะนี้ครับ!", ephemeral=True)
 
-# --- Slash Command: /play ---
 @bot.tree.command(name="play", description="เล่นเพลงจากชื่อเพลงหรือลิงก์ SoundCloud/Spotify")
 @app_commands.describe(search="พิมพ์ชื่อเพลง ศิลปิน หรือวางลิงก์เพลง")
 async def slash_play(interaction: discord.Interaction, search: str):
@@ -113,11 +107,16 @@ async def slash_play(interaction: discord.Interaction, search: str):
         def extract_valid_song():
             data = ytdl.extract_info(query, download=False)
             if 'entries' in data:
-                # วนลูปหาเพลงแรกที่ไม่ติด DRM
                 for entry in data['entries']:
-                    if entry and not entry.get('is_live', False):
-                        return entry
-                raise Exception("ทุกผลลัพธ์ของเพลงนี้ติดระบบป้องกัน DRM ไม่สามารถเล่นได้")
+                    if entry:
+                        try:
+                            # เช็คข้อมูลเบื้องต้นว่าดึงลิงก์สตรีมได้จริงหรือไม่
+                            sub_url = entry.get('url')
+                            if sub_url and not entry.get('is_live', False):
+                                return entry
+                        except Exception:
+                            continue
+                raise Exception("เพลงนี้ถูกป้องกันลิขสิทธิ์ (DRM) ทุกเวอร์ชันบนระบบสำรอง กรุณาลองค้นหาด้วยชื่ออื่นครับ")
             return data
 
         data = await loop.run_in_executor(None, extract_valid_song)
@@ -142,11 +141,10 @@ async def slash_play(interaction: discord.Interaction, search: str):
         player = discord.FFmpegPCMAudio(song_url, **ffmpeg_options)
         voice_client.play(player, after=play_next)
 
-        await interaction.followup.send(f"กำลังเล่นเพลงจาก SoundCloud: **{song_title}** 🎵")
+        await interaction.followup.send(f"กำลังเล่นเพลง: **{song_title}** 🎵")
     except Exception as e:
         await interaction.followup.send(f"เกิดข้อผิดพลาดในการเล่นเพลง: {e}")
 
-# --- Slash Command: /loop ---
 @bot.tree.command(name="loop", description="เปิด/ปิด การวนซ้ำเพลงปัจจุบัน")
 async def slash_loop(interaction: discord.Interaction):
     guild_id = interaction.guild.id
@@ -158,7 +156,6 @@ async def slash_loop(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("➡️ ปิดการใช้งานโหมด **วนซ้ำ** แล้วครับ", ephemeral=True)
 
-# --- Slash Command: /stop ---
 @bot.tree.command(name="stop", description="หยุดเพลงที่กำลังเล่นอยู่")
 async def slash_stop(interaction: discord.Interaction):
     voice_client = discord.utils.get(bot.voice_clients, guild=interaction.guild)
