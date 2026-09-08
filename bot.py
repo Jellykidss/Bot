@@ -422,7 +422,7 @@ class TicketManageView(discord.ui.View):
 
 
 @bot.tree.command(name="ticket_manage", description="เปิดหน้าต่าง Pop-up เลือกวิธีปิดห้อง Ticket (ห้องเดียว, หลายห้อง, หรือทั้งหมด)")
-async def slash_ticket_manage(interaction: discord.SystemInteraction or discord.Interaction):
+async def slash_ticket_manage(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.manage_channels:
         await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้", ephemeral=True)
         return
