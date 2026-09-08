@@ -78,7 +78,6 @@ def play_next(guild_id, voice_client):
     if guild_id not in queues:
         queues[guild_id] = []
     
-    # ถ้าเปิด loop อยู่ ให้ดึงข้อมูลเพลงใหม่เพื่อแก้ปัญหาลิงก์หมดอายุ (403 Forbidden)
     if loop_status.get(guild_id, False) and guild_id in current_song:
         try:
             query = current_song[guild_id]['title']
@@ -96,7 +95,6 @@ def play_next(guild_id, voice_client):
         except Exception as e:
             print(f"Error refreshing loop song: {e}")
 
-    # เล่นเพลงถัดไปในคิว
     if len(queues[guild_id]) > 0:
         next_song = queues[guild_id].pop(0)
         current_song[guild_id] = next_song
@@ -228,6 +226,62 @@ async def slash_stop(interaction: discord.Interaction):
         await interaction.response.send_message("⏹️ หยุดเพลงและล้างคิวทั้งหมดเรียบร้อยแล้วครับ", ephemeral=True)
     else:
         await interaction.response.send_message("บอทไม่ได้อยู่ในห้องเสียงครับ!", ephemeral=True)
+
+# ----------------- ระบบประกาศข้อความ (Announcement) -----------------
+@bot.tree.command(name="announcement", description="ประกาศข้อความไปยังห้องที่เลือก (รองรับรูปภาพ)")
+@app_commands.describe(
+    channel="เลือกห้องแชทที่ต้องการส่งประกาศ",
+    message="ข้อความประกาศของคุณ",
+    image="แนบรูปภาพประกาศ (ถ้ามี)"
+)
+async def slash_announcement(interaction: discord.Interaction, channel: discord.TextChannel, message: str, image: discord.Attachment = None):
+    # ตรวจสอบสิทธิ์ผู้ใช้ว่าจัดการข้อความได้ไหม
+    if not interaction.user.guild_permissions.manage_messages:
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องมีสิทธิ์ Manage Messages)", ephemeral=True)
+        return
+
+    try:
+        file = None
+        if image:
+            file = await image.to_file()
+
+        # ส่งข้อความไปยังห้องที่เลือก
+        sent_msg = await channel.send(content=message, file=file)
+        
+        await interaction.response.send_message(
+            f"✅ ส่งประกาศไปยังห้อง {channel.mention} เรียบร้อยแล้ว!\n*(ID ข้อความสำหรับแก้ไข: `{sent_msg.id}`)*", 
+            ephemeral=True
+        )
+    except Exception as e:
+        await interaction.response.send_message(f"❌ เกิดข้อผิดพลาดในการส่งประกาศ: {e}", ephemeral=True)
+
+@bot.tree.command(name="edit_announcement", description="แก้ไขข้อความประกาศที่เคยส่งไปแล้ว")
+@app_commands.describe(
+    channel="ห้องแชทที่ข้อความประกาศนั้นอยู่",
+    message_id="ID ของข้อความประกาศที่ต้องการแก้ไข",
+    new_message="ข้อความใหม่ที่ต้องการเปลี่ยน"
+)
+async def slash_edit_announcement(interaction: discord.Interaction, channel: discord.TextChannel, message_id: str, new_message: str):
+    if not interaction.user.guild_permissions.manage_messages:
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้", ephemeral=True)
+        return
+
+    try:
+        msg_id_int = int(message_id)
+        msg_to_edit = await channel.fetch_message(msg_id_int)
+        
+        if msg_to_edit.author != bot.user:
+            await interaction.response.send_message("❌ บอทรวมถึงข้อความนี้ไม่ได้ หรือไม่ใช่ข้อความที่บอทส่ง", ephemeral=True)
+            return
+
+        await msg_to_edit.edit(content=new_message)
+        await interaction.response.send_message("✅ แก้ไขข้อความประกาศเรียบร้อยแล้วครับ!", ephemeral=True)
+    except ValueError:
+        await interaction.response.send_message("❌ Message ID ไม่ถูกต้อง (ต้องเป็นตัวเลข)", ephemeral=True)
+    except discord.NotFound:
+        await interaction.response.send_message("❌ ไม่พบข้อความตาม ID ที่ระบุในห้องนี้", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ เกิดข้อผิดพลาด: {e}", ephemeral=True)
 
 keep_alive()
 bot.run(os.environ.get("DISCORD_TOKEN"))
