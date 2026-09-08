@@ -15,7 +15,6 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ตั้งค่า yt-dlp ค้นหาเผื่อไว้ 10 ผลลัพธ์เพื่อเลือกตัวที่เล่นได้
 ytdl_format_options = {
     'format': 'bestaudio/best',
     'noplaylist': True,
@@ -30,7 +29,11 @@ ffmpeg_options = {
 }
 
 ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
+
+# ระบบเก็บข้อมูลคิว, สถานะ Loop และเพลงปัจจุบัน
+queues = {}
 loop_status = {}
+current_song = {}
 
 @bot.event
 async def on_ready():
@@ -63,13 +66,43 @@ async def slash_join(interaction: discord.Interaction):
 async def slash_leave(interaction: discord.Interaction):
     voice_client = discord.utils.get(bot.voice_clients, guild=interaction.guild)
     if voice_client and voice_client.is_connected():
-        loop_status[interaction.guild.id] = False
+        guild_id = interaction.guild.id
+        queues[guild_id] = []
+        loop_status[guild_id] = False
+        current_song.pop(guild_id, None)
         await voice_client.disconnect()
         await interaction.response.send_message("ออกจากห้องเสียงเรียบร้อยแล้วครับ!", ephemeral=True)
     else:
         await interaction.response.send_message("บอทไม่ได้อยู่ในห้องเสียงในขณะนี้ครับ!", ephemeral=True)
 
-@bot.tree.command(name="play", description="เล่นเพลงจากชื่อเพลงหรือลิงก์ SoundCloud/Spotify")
+def play_next(guild_id, voice_client):
+    if guild_id not in queues:
+        queues[guild_id] = []
+    
+    # ถ้าเปิด loop เพลงปัจจุบันไว้ ให้เล่นเพลงเดิมซ้ำ
+    if loop_status.get(guild_id, False) and guild_id in current_song:
+        song_url = current_song[guild_id]['url']
+        try:
+            player = discord.FFmpegPCMAudio(song_url, **ffmpeg_options)
+            voice_client.play(player, after=lambda e: play_next(guild_id, voice_client))
+            return
+        except Exception as e:
+            print(f"Error looping song: {e}")
+
+    # ถ้ามีเพลงในคิว ให้หยิบเพลงถัดมาเล่น
+    if len(queues[guild_id]) > 0:
+        next_song = queues[guild_id].pop(0)
+        current_song[guild_id] = next_song
+        song_url = next_song['url']
+        try:
+            player = discord.FFmpegPCMAudio(song_url, **ffmpeg_options)
+            voice_client.play(player, after=lambda e: play_next(guild_id, voice_client))
+        except Exception as e:
+            print(f"Error playing next song: {e}")
+    else:
+        current_song.pop(guild_id, None)
+
+@bot.tree.command(name="play", description="เล่นเพลงทันทีหรือเพิ่มเข้าคิวเพลง")
 @app_commands.describe(search="พิมพ์ชื่อเพลง ศิลปิน หรือวางลิงก์เพลง")
 async def slash_play(interaction: discord.Interaction, search: str):
     if not interaction.user.voice or not interaction.user.voice.channel:
@@ -110,40 +143,60 @@ async def slash_play(interaction: discord.Interaction, search: str):
                 for entry in data['entries']:
                     if entry:
                         try:
-                            # เช็คข้อมูลเบื้องต้นว่าดึงลิงก์สตรีมได้จริงหรือไม่
                             sub_url = entry.get('url')
                             if sub_url and not entry.get('is_live', False):
                                 return entry
                         except Exception:
                             continue
-                raise Exception("เพลงนี้ถูกป้องกันลิขสิทธิ์ (DRM) ทุกเวอร์ชันบนระบบสำรอง กรุณาลองค้นหาด้วยชื่ออื่นครับ")
+                raise Exception("เพลงนี้ถูกป้องกันลิขสิทธิ์ (DRM) ทุกเวอร์ชัน กรุณาลองค้นหาด้วยชื่ออื่นครับ")
             return data
 
         data = await loop.run_in_executor(None, extract_valid_song)
 
         song_url = data.get('url')
         song_title = data.get('title', 'เพลงไม่มีชื่อ')
+        guild_id = interaction.guild.id
 
-        def play_next(error):
-            if error:
-                print(f"Player error: {error}")
-            guild_id = interaction.guild.id
-            if loop_status.get(guild_id, False):
-                try:
-                    player = discord.FFmpegPCMAudio(song_url, **ffmpeg_options)
-                    voice_client.play(player, after=play_next)
-                except Exception as e:
-                    print(f"Error looping song: {e}")
+        song_info = {'url': song_url, 'title': song_title}
 
-        if voice_client.is_playing():
-            voice_client.stop()
+        if guild_id not in queues:
+            queues[guild_id] = []
 
-        player = discord.FFmpegPCMAudio(song_url, **ffmpeg_options)
-        voice_client.play(player, after=play_next)
+        # ถ้าบอทกำลังเล่นเพลงอยู่ ให้เพิ่มเข้าไปในคิว
+        if voice_client.is_playing() or voice_client.is_paused():
+            queues[guild_id].append(song_info)
+            queue_position = len(queues[guild_id])
+            await interaction.followup.send(f"➕ เพิ่มเข้าคิวลำดับที่ **{queue_position}**: **{song_title}** 🎵")
+        else:
+            current_song[guild_id] = song_info
+            player = discord.FFmpegPCMAudio(song_url, **ffmpeg_options)
+            voice_client.play(player, after=lambda e: play_next(guild_id, voice_client))
+            await interaction.followup.send(f"กำลังเล่นเพลง: **{song_title}** 🎵")
 
-        await interaction.followup.send(f"กำลังเล่นเพลง: **{song_title}** 🎵")
     except Exception as e:
         await interaction.followup.send(f"เกิดข้อผิดพลาดในการเล่นเพลง: {e}")
+
+@bot.tree.command(name="skip", description="ข้ามเพลงที่กำลังเล่นไปยังเพลงถัดไปในคิว")
+async def slash_skip(interaction: discord.Interaction):
+    voice_client = discord.utils.get(bot.voice_clients, guild=interaction.guild)
+    if voice_client and voice_client.is_playing():
+        voice_client.stop()  # สั่งหยุดเพลงปัจจุบัน ระบบจะสลับไปเล่นเพลงถัดไปในคิวอัตโนมัติ
+        await interaction.response.send_message("⏭️ ข้ามเพลงเรียบร้อยแล้วครับ!", ephemeral=True)
+    else:
+        await interaction.response.send_message("ไม่มีเพลงกำลังเล่นอยู่ให้ข้ามครับ!", ephemeral=True)
+
+@bot.tree.command(name="queue", description="ดูรายชื่อเพลงทั้งหมดที่รออยู่ในคิว")
+async def slash_queue(interaction: discord.Interaction):
+    guild_id = interaction.guild.id
+    if guild_id not in queues or len(queues[guild_id]) == 0:
+        await interaction.response.send_message("📜 ไม่มีเพลงรออยู่ในคิวขณะนี้ครับ", ephemeral=True)
+        return
+    
+    queue_text = ""
+    for i, song in enumerate(queues[guild_id], 1):
+        queue_text += f"**{i}.** {song['title']}\n"
+    
+    await interaction.response.send_message(f"📜 **คิวเพลงทั้งหมด:**\n{queue_text}", ephemeral=True)
 
 @bot.tree.command(name="loop", description="เปิด/ปิด การวนซ้ำเพลงปัจจุบัน")
 async def slash_loop(interaction: discord.Interaction):
@@ -156,15 +209,19 @@ async def slash_loop(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("➡️ ปิดการใช้งานโหมด **วนซ้ำ** แล้วครับ", ephemeral=True)
 
-@bot.tree.command(name="stop", description="หยุดเพลงที่กำลังเล่นอยู่")
+@bot.tree.command(name="stop", description="หยุดเพลงและล้างคิวทั้งหมด")
 async def slash_stop(interaction: discord.Interaction):
     voice_client = discord.utils.get(bot.voice_clients, guild=interaction.guild)
-    if voice_client and voice_client.is_playing():
-        loop_status[interaction.guild.id] = False
-        voice_client.stop()
-        await interaction.response.send_message("⏹️ หยุดเพลงเรียบร้อยแล้วครับ", ephemeral=True)
+    if voice_client:
+        guild_id = interaction.guild.id
+        queues[guild_id] = []
+        loop_status[guild_id] = False
+        current_song.pop(guild_id, None)
+        if voice_client.is_playing():
+            voice_client.stop()
+        await interaction.response.send_message("⏹️ หยุดเพลงและล้างคิวทั้งหมดเรียบร้อยแล้วครับ", ephemeral=True)
     else:
-        await interaction.response.send_message("ไม่มีเพลงกำลังเล่นอยู่ในขณะนี้ครับ!", ephemeral=True)
+        await interaction.response.send_message("บอทไม่ได้อยู่ในห้องเสียงครับ!", ephemeral=True)
 
 keep_alive()
 bot.run(os.environ.get("DISCORD_TOKEN"))
