@@ -14,14 +14,19 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ตั้งค่า yt-dlp สำหรับค้นหาและดึงเสียงเพลง
+# ตั้งค่า yt-dlp แบบอัปเดตเพื่อเลี่ยงบอทบล็อก
 ytdl_format_options = {
     'format': 'bestaudio/best',
     'noplaylist': True,
     'quiet': True,
     'default_search': 'ytsearch',
     'extract_flat': False,
-    'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+    # ปรับใช้ client หลากหลายรูปแบบเพื่อป้องกันการบล็อก IP บน Cloud
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['ios', 'tv_embedded', 'mweb']
+        }
+    },
 }
 
 ffmpeg_options = {
@@ -96,17 +101,16 @@ async def slash_play(interaction: discord.Interaction, search: str):
 
     try:
         query = search
-        # ถ้าผู้ใช้ส่งลิงก์ Spotify มา ให้ดึงข้อมูลหน้าเว็บมาแปลงเป็นชื่อเพลงและศิลปินเพื่อค้นหาอัตโนมัติ
+        # ดึงข้อมูลชื่อเพลงจากลิงก์ Spotify
         if "spotify.com" in search:
             import urllib.request
             import json
             try:
-                # ดึง OEmbed metadata จาก Spotify โดยตรงเพื่อเอาชื่อเพลงและศิลปิน
                 oembed_url = f"https://open.spotify.com/oembed?url={search}"
                 req = urllib.request.Request(oembed_url, headers={'User-Agent': 'Mozilla/5.0'})
                 with urllib.request.urlopen(req) as response:
                     data_json = json.loads(response.read().decode())
-                    query = data_json.get('title', search) # ได้ชื่อเพลงและศิลปินจาก Spotify มาค้นหา
+                    query = data_json.get('title', search)
             except Exception as err:
                 print(f"Spotify oembed error: {err}")
 
