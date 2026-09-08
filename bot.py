@@ -14,15 +14,19 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ตั้งค่า yt-dlp สำหรับดึงเพลง (รองรับทั้ง YouTube และ Spotify)
+# ตั้งค่า yt-dlp แบบอัปเดตเพื่อหลีกเลี่ยง Bot Detection ของ YouTube
 ytdl_format_options = {
     'format': 'bestaudio/best',
     'noplaylist': True,
     'quiet': True,
     'default_search': 'ytsearch',
+    'extract_flat': False,
+    # ใช้ client ที่จำลองการใช้งานเพื่อแก้ปัญหา Sign in to confirm
+    'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
 }
+
 ffmpeg_options = {
-    'options': '-vn'
+    'options': '-vn -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5'
 }
 
 ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
@@ -33,7 +37,6 @@ loop_status = {}
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user.name}")
-    # ซิงค์ Slash Commands กับ Discord
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
@@ -64,7 +67,7 @@ async def slash_join(interaction: discord.Interaction):
 async def slash_leave(interaction: discord.Interaction):
     voice_client = discord.utils.get(bot.voice_clients, guild=interaction.guild)
     if voice_client and voice_client.is_connected():
-        loop_status[interaction.guild.id] = False  # ปิดลูปเมื่อบอทออก
+        loop_status[interaction.guild.id] = False
         await voice_client.disconnect()
         await interaction.response.send_message("ออกจากห้องเสียงเรียบร้อยแล้วครับ!", ephemeral=True)
     else:
@@ -94,8 +97,6 @@ async def slash_play(interaction: discord.Interaction, search: str):
 
     try:
         loop = asyncio.get_event_loop()
-        
-        # ดึงข้อมูลเพลงผ่าน yt-dlp (รองรับลิงก์ Spotify โดยระบบจะแปลงค้นหาอัตโนมัติ)
         data = await loop.run_in_executor(None, lambda: ytdl.extract_info(search, download=False))
         
         if 'entries' in data:
@@ -104,7 +105,6 @@ async def slash_play(interaction: discord.Interaction, search: str):
         song_url = data.get('url')
         song_title = data.get('title', 'เพลงไม่มีชื่อ')
 
-        # ฟังก์ชันเล่นซ้ำอัตโนมัติเมื่อเพลงจบ
         def play_next(error):
             if error:
                 print(f"Player error: {error}")
@@ -131,8 +131,6 @@ async def slash_play(interaction: discord.Interaction, search: str):
 async def slash_loop(interaction: discord.Interaction):
     guild_id = interaction.guild.id
     current_status = loop_status.get(guild_id, False)
-    
-    # สลับสถานะ เปิด/ปิด
     loop_status[guild_id] = not current_status
     
     if loop_status[guild_id]:
@@ -145,14 +143,11 @@ async def slash_loop(interaction: discord.Interaction):
 async def slash_stop(interaction: discord.Interaction):
     voice_client = discord.utils.get(bot.voice_clients, guild=interaction.guild)
     if voice_client and voice_client.is_playing():
-        loop_status[interaction.guild.id] = False  # ปิดลูปด้วย
+        loop_status[interaction.guild.id] = False
         voice_client.stop()
         await interaction.response.send_message("⏹️ หยุดเพลงเรียบร้อยแล้วครับ", ephemeral=True)
     else:
         await interaction.response.send_message("ไม่มีเพลงกำลังเล่นอยู่ในขณะนี้ครับ!", ephemeral=True)
 
-# รันระบบ Keep Alive สำหรับ Render
 keep_alive()
-
-# ใส่ Token ของบอทคุณตรงนี้
 bot.run(os.environ.get("DISCORD_TOKEN"))
