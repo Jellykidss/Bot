@@ -777,7 +777,7 @@ class InTicketControlView(discord.ui.View):
         await interaction.response.send_message(f"🙋‍♂️ แอดมิน **{interaction.user.mention}** เข้ามารับดูแลเคสนี้เรียบร้อยแล้วครับ!")
 
 
-# ----------------- ระบบเปิด Ticket แบบเลือก 3 หมวดหมู่ (แก้ไขให้แสดง "โปรดเลือกหมวดหมู่") -----------------
+# ----------------- ระบบเปิด Ticket แบบเลือก 3 หมวดหมู่ (แก้ไขให้รีเซ็ตสถานะกลับมาแสดง "โปรดเลือกหมวดหมู่") -----------------
 
 class OpenTicketSelect(discord.ui.Select):
     def __init__(self, opt1_label, opt1_desc, opt2_label, opt2_desc, opt3_label, opt3_desc, role_to_tag1, role_to_tag2, role_to_tag3):
@@ -786,8 +786,13 @@ class OpenTicketSelect(discord.ui.Select):
             discord.SelectOption(label=opt2_label, description=opt2_desc, value="sell", emoji="💷"),
             discord.SelectOption(label=opt3_label, description=opt3_desc, value="preorder", emoji="📦")
         ]
-        # ตั้งค่า Placeholder เริ่มต้นเป็น "📌 โปรดเลือกหมวดหมู่"
         super().__init__(placeholder="📌 โปรดเลือกหมวดหมู่", min_values=1, max_values=1, options=options)
+        self.opt1_label = opt1_label
+        self.opt1_desc = opt1_desc
+        self.opt2_label = opt2_label
+        self.opt2_desc = opt2_desc
+        self.opt3_label = opt3_label
+        self.opt3_desc = opt3_desc
         self.role_to_tag1 = role_to_tag1
         self.role_to_tag2 = role_to_tag2
         self.role_to_tag3 = role_to_tag3
@@ -845,6 +850,7 @@ class OpenTicketSelect(discord.ui.Select):
                 description=desc_val,
                 color=discord.Color.dark_theme()
             )
+            # แก้ไขผูกลิงก์รูปภาพเข้ากับ Embed ให้แสดงผลเป็นภาพเรียบร้อย
             if img_val:
                 embed.set_image(url=img_val)
 
@@ -858,6 +864,16 @@ class OpenTicketSelect(discord.ui.Select):
             view = InTicketControlView()
             await ticket_channel.send(content=ping_content, embed=embed, view=view)
             await interaction.followup.send(f"✅ เปิดห้อง Ticket ให้คุณแล้วที่ห้อง: {ticket_channel.mention}", ephemeral=True)
+            
+            # รีเซ็ตสถานะ Dropdown กลับไปเป็น "โปรดเลือกหมวดหมู่"
+            reset_view = OpenTicketView(
+                self.opt1_label, self.opt1_desc, 
+                self.opt2_label, self.opt2_desc, 
+                self.opt3_label, self.opt3_desc, 
+                self.role_to_tag1, self.role_to_tag2, self.role_to_tag3
+            )
+            await interaction.message.edit(view=reset_view)
+            
         except Exception as e:
             await interaction.followup.send(f"❌ เกิดข้อผิดพลาดในการสร้างห้อง: {e}", ephemeral=True)
 
