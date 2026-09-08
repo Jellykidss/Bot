@@ -33,8 +33,6 @@ ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
 queues = {}
 loop_status = {}
 current_song = {}
-
-# ตัวแปรเก็บข้อมูลยศที่มีสิทธิ์ใช้ระบบ Ticket แยกตามแต่ละเซิร์ฟเวอร์
 ticket_roles = {}
 
 @bot.event
@@ -305,54 +303,154 @@ async def slash_edit_announcement(interaction: discord.Interaction, channel: dis
         await interaction.response.send_message(f"❌ เกิดข้อผิดพลาด: {e}", ephemeral=True)
 
 
-# ----------------- ระบบกดปุ่มรับยศ (Role Button with GIF Support) -----------------
+# ----------------- ระบบขั้นสูง: ปุ่มกดรับยศ & Dropdown (Role Panel) -----------------
 
-class RoleButtonView(discord.ui.View):
-    def __init__(self, role: discord.Role):
+class SingleRoleButtonView(discord.ui.View):
+    def __init__(self, role: discord.Role, mode: str, button_label: str, emoji: str):
         super().__init__(timeout=None)
         self.role = role
+        self.mode = mode # 'toggle' หรือ 'claim_only'
         
-        # สร้างปุ่มกด (สามารถเปลี่ยน label และ emoji ตามต้องการได้)
+        btn_style = discord.ButtonStyle.success if mode == 'claim_only' else discord.ButtonStyle.primary
         self.btn = discord.ui.Button(
-            label=role.name, 
-            style=discord.ButtonStyle.success, 
-            emoji="➕", 
-            custom_id=f"role_btn_{role.id}"
+            label=button_label if button_label else role.name, 
+            style=btn_style, 
+            emoji=emoji if emoji else "➕", 
+            custom_id=f"role_btn_{role.id}_{mode}"
         )
         self.btn.callback = self.button_callback
         self.add_item(self.btn)
 
     async def button_callback(self, interaction: discord.Interaction):
-        # เมื่อผู้ใช้กดปุ่ม เช็คว่ามีเจ้านี้ยศอยู่หรือยัง ถ้ามีแล้วให้เอาออก ถ้ายังไม่มีให้ใส่เพิ่ม
-        if self.role in interaction.user.roles:
-            await interaction.user.remove_roles(self.role)
-            await interaction.response.send_message(f"❌ ทำการถอดรยศ **{self.role.name}** ออกจากคุณแล้วครับ", ephemeral=True)
-        else:
-            await interaction.user.add_roles(self.role)
-            await interaction.response.send_message(f"✅ มอบยศ **{self.role.name}** ให้คุณเรียบร้อยแล้วครับ!", ephemeral=True)
+        if self.mode == 'claim_only':
+            if self.role in interaction.user.roles:
+                await interaction.response.send_message(f"ℹ️ คุณมียศ **{self.role.name}** อยู่แล้วครับ", ephemeral=True)
+            else:
+                await interaction.user.add_roles(self.role)
+                await interaction.response.send_message(f"✅ รับยศ **{self.role.name}** เรียบร้อยแล้วครับ!", ephemeral=True)
+        else: # toggle
+            if self.role in interaction.user.roles:
+                await interaction.user.remove_roles(self.role)
+                await interaction.response.send_message(f"❌ ถอดรยศ **{self.role.name}** ออกจากคุณแล้วครับ", ephemeral=True)
+            else:
+                await interaction.user.add_roles(self.role)
+                await interaction.response.send_message(f"✅ มอบยศ **{self.role.name}** ให้คุณเรียบร้อยแล้วครับ!", ephemeral=True)
 
-@bot.tree.command(name="setup_role_button", description="สร้างแผงปุ่มกดรับยศพร้อมภาพ (รองรับลิงก์รูป GIF)")
+
+class MultiRoleSelect(discord.ui.Select):
+    def __init__(self, roles_list):
+        options = []
+        for r in roles_list[:25]:
+            options.append(discord.SelectOption(label=r.name[:100], value=str(r.id), emoji="✨"))
+        super().__init__(placeholder="📌 เลือกยศที่ต้องการรับ (เลือกได้หลายอัน)", min_values=1, max_values=len(options), options=options)
+        self.roles_list = roles_list
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        added_roles = []
+        removed_roles = []
+        
+        selected_role_ids = [int(v) for v in self.values]
+        for r in self.roles_list:
+            if r.id in selected_role_ids:
+                if r not in interaction.user.roles:
+                    await interaction.user.add_roles(r)
+                    added_roles.append(r.name)
+            else:
+                if r in interaction.user.roles:
+                    await interaction.user.remove_roles(r)
+                    removed_roles.append(r.name)
+
+        msg = "✅ อัปเดตสถานะยศของคุณเรียบร้อยแล้ว!\n"
+        if added_roles:
+            msg += f"• เพิ่มยศ: **{', '.join(added_roles)}**\n"
+        if removed_roles:
+            msg += f"• ถอดรยศ: **{', '.join(removed_roles)}**\n"
+        if not added_roles and not removed_roles:
+            msg = "ℹ️ ไม่มีข้อยศเปลี่ยนแปลง"
+
+        await interaction.followup.send(msg, ephemeral=True)
+
+class MultiRoleSelectView(discord.ui.View):
+    def __init__(self, roles_list):
+        super().__init__(timeout=None)
+        self.add_item(MultiRoleSelect(roles_list))
+
+
+@bot.tree.command(name="setup_role_panel", description="สร้างแผงรับยศ (เลือกปุ่มเดี่ยว, ปุ่มกดครั้งเดียวถอดไม่ได้ หรือเมนู Dropdown เลือกหลายยศ)")
 @app_commands.describe(
-    channel="ห้องแชทที่ต้องการส่งแผงปุ่ม",
-    role="ยศที่ต้องการให้ผู้ใช้กดรับ",
-    title_text="ข้อความหัวข้อในกรอบ (Embed)",
-    image_url="ลิงก์รูปภาพ (รองรับไฟล์ .png, .jpg หรือ .gif)"
+    channel="ห้องแชทที่ต้องการส่งแผง",
+    panel_type="เลือกประเภทแผงยศ",
+    role_1="ยศที่ 1 (จำเป็นสำหรับปุ่มเดี่ยว / เลือกใส่เพิ่มได้สำหรับ Dropdown)",
+    role_2="ยศที่ 2 (สำหรับ Dropdown)",
+    role_3="ยศที่ 3 (สำหรับ Dropdown)",
+    mode="(สำหรับปุ่มเดี่ยว) toggle=กดเปิด-ปิดได้เอง, claim_only=กดรับครั้งเดียวถอดไม่ได้",
+    title_text="หัวข้อหลักของ Embed",
+    description_text="รายละเอียดเพิ่มเติม / คำอธิบายในกรอบ",
+    color="สีของกรอบ (green, red, blue, gold, purple)",
+    image_url="ลิงก์รูปภาพ หรือ GIF ตกแต่ง",
+    button_label="ข้อความบนปุ่ม (ถ้ามี)",
+    emoji="อีโมจิปุ่ม (ถ้ามี)"
 )
-async def slash_setup_role_button(interaction: discord.Interaction, channel: discord.TextChannel, role: discord.Role, title_text: str, image_url: str):
+@app_commands.choices(panel_type=[
+    app_commands.Choice(name="ปุ่มกด (Single Button)", value="button"),
+    app_commands.Choice(name="เมนูเลือกหลายยศ (Dropdown Menu)", value="dropdown")
+], mode=[
+    app_commands.Choice(name="กดเปิด-ปิดได้ (Toggle)", value="toggle"),
+    app_commands.Choice(name="กดรับแล้วถอดไม่ได้ (Claim Only)", value="claim_only")
+])
+async def slash_setup_role_panel(
+    interaction: discord.Interaction, 
+    channel: discord.TextChannel, 
+    panel_type: app_commands.Choice[str],
+    role_1: discord.Role,
+    role_2: discord.Role = None,
+    role_3: discord.Role = None,
+    mode: app_commands.Choice[str] = None,
+    title_text: str = "ระบบรับยศอัตโนมัติ",
+    description_text: str = "กดปุ่มหรือเลือกเมนูด้านล่างเพื่อรับยศ",
+    color: str = "blue",
+    image_url: str = None,
+    button_label: str = None,
+    emoji: str = "➕"
+):
     if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ คำสั่งนี้ต้องใช้สิทธิ์ผู้ดูแลระบบ (Administrator) เท่านั้น", ephemeral=True)
+        await interaction.response.send_message("❌ คำสั่งนี้ต้องใช้สิทธิ์ผู้ดูแลระบบเท่านั้น", ephemeral=True)
         return
+
+    # แปลงสี
+    embed_color = discord.Color.blurple()
+    c_lower = color.lower()
+    if c_lower == "green": embed_color = discord.Color.green()
+    elif c_lower == "red": embed_color = discord.Color.red()
+    elif c_lower == "gold": embed_color = discord.Color.gold()
+    elif c_lower == "purple": embed_color = discord.Color.purple()
 
     embed = discord.Embed(
         title=title_text,
-        color=discord.Color.blurple()
+        description=description_text,
+        color=embed_color
     )
-    # ใส่รูปภาพ (รองรับภาพนิ่งและภาพ GIF ถ้าลิงก์ถูกต้อง)
-    embed.set_image(url=image_url)
+    if image_url:
+        embed.set_image(url=image_url)
 
-    view = RoleButtonView(role)
-    await channel.send(embed=embed, view=view)
-    await interaction.response.send_message(f"✅ สร้างแผงปุ่มกดรับยศไปยังห้อง {channel.mention} เรียบร้อยแล้วครับ!", ephemeral=True)
+    selected_type = panel_type.value
+
+    if selected_type == "button":
+        chosen_mode = mode.value if mode else "toggle"
+        view = SingleRoleButtonView(role_1, chosen_mode, button_label, emoji)
+        await channel.send(embed=embed, view=view)
+        await interaction.response.send_message(f"✅ สร้างแผงปุ่มกดรับยศ **{role_1.name}** ไปที่ห้อง {channel.mention} เรียบร้อยแล้วครับ!", ephemeral=True)
+
+    elif selected_type == "dropdown":
+        roles_list = [role_1]
+        if role_2: roles_list.append(role_2)
+        if role_3: roles_list.append(role_3)
+
+        view = MultiRoleSelectView(roles_list)
+        await channel.send(embed=embed, view=view)
+        await interaction.response.send_message(f"✅ สร้างแผง Dropdown เลือกหลายยศไปที่ห้อง {channel.mention} เรียบร้อยแล้วครับ!", ephemeral=True)
 
 
 # ----------------- ระบบจัดการ Ticket -----------------
