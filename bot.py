@@ -254,8 +254,8 @@ class AnnouncementModal(discord.ui.Modal, title="สร้างข้อคว�
 @bot.tree.command(name="announcement", description="เปิดหน้าต่างเขียนประกาศ (สามารถขึ้นบรรทัดใหม่ได้)")
 @app_commands.describe(channel="เลือกห้องแชทที่ต้องการส่งประกาศ")
 async def slash_announcement(interaction: discord.Interaction, channel: discord.TextChannel):
-    if not interaction.user.guild_permissions.manage_messages:
-        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องมีสิทธิ์ Manage Messages)", ephemeral=True)
+    if not interaction.user.guild_permissions.manage_channels:
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องมีสิทธิ์ Manage Channels)", ephemeral=True)
         return
     await interaction.response.send_modal(AnnouncementModal(channel))
 
@@ -265,8 +265,6 @@ class EditAnnouncementModal(discord.ui.Modal, title="แก้ไขข้อค
         super().__init__()
         self.channel = channel
         self.message_id = message_id
-
-        # ดึงข้อความเดิมมาใส่ไว้ในช่องกรอกอัตโนมัติเพื่อให้แก้ต่อได้ง่ายขึ้น
         self.new_announcement_text.default = old_content
 
     new_announcement_text = discord.ui.TextInput(
@@ -301,7 +299,7 @@ class EditAnnouncementModal(discord.ui.Modal, title="แก้ไขข้อค
     message_id="ID ของข้อความประกาศที่ต้องการแก้ไข"
 )
 async def slash_edit_announcement(interaction: discord.Interaction, channel: discord.TextChannel, message_id: str):
-    if not interaction.user.guild_permissions.manage_messages:
+    if not interaction.user.guild_permissions.manage_channels:
         await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้", ephemeral=True)
         return
 
@@ -313,7 +311,6 @@ async def slash_edit_announcement(interaction: discord.Interaction, channel: dis
             await interaction.response.send_message("❌ ข้อความนี้ไม่ใช่ข้อความที่บอทส่ง จึงไม่สามารถแก้ไขผ่านบอทได้", ephemeral=True)
             return
 
-        # เปิด Modal และดึงข้อความเก่ามาใส่ช่องพิมพ์ให้อัตโนมัติ
         await interaction.response.send_modal(EditAnnouncementModal(channel, message_id, msg_to_edit.content))
     except ValueError:
         await interaction.response.send_message("❌ Message ID ไม่ถูกต้อง (ต้องเป็นตัวเลข)", ephemeral=True)
@@ -321,6 +318,118 @@ async def slash_edit_announcement(interaction: discord.Interaction, channel: dis
         await interaction.response.send_message("❌ ไม่พบข้อความตาม ID ที่ระบุ กรุณาตรวจสอบ ID อีกครั้ง", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"❌ เกิดข้อผิดพลาด: {e}", ephemeral=True)
+
+
+# ----------------- ระบบจัดการ Ticket แบบ Pop-up เมนูรวม 3 โหมด -----------------
+
+# 1. Select Menu สำหรับปิดห้องเดี่ยว
+class SingleTicketSelect(discord.ui.Select):
+    def __init__(self, channels):
+        options = [discord.SelectOption(label=ch.name[:100], value=str(ch.id), description=f"หมวดหมู่: {ch.category.name if ch.category else 'ไม่มี'}") for ch in channels[:25]]
+        super().__init__(placeholder="📌 เลือกห้อง Ticket ที่ต้องการปิด (1 ห้อง)", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        ch = interaction.guild.get_channel(int(self.values[0]))
+        if ch:
+            try:
+                name = ch.name
+                await ch.delete(reason=f"Closed by {interaction.user}")
+                await interaction.followup.send(f"🗑️ ปิดห้อง Ticket **{name}** เรียบร้อยแล้วครับ!", ephemeral=True)
+            except Exception as e:
+                await interaction.followup.send(f"❌ ไม่สามารถปิดห้องนี้ได้: {e}", ephemeral=True)
+        else:
+            await interaction.followup.send("❌ ไม่พบห้องดังกล่าวแล้ว", ephemeral=True)
+
+class SingleTicketView(discord.ui.View):
+    def __init__(self, channels):
+        super().__init__(timeout=120)
+        self.add_item(SingleTicketSelect(channels))
+
+
+# 2. Select Menu สำหรับเลือกปิดหลายห้อง (3-5 หรือมากกว่า)
+class MultiTicketSelect(discord.ui.Select):
+    def __init__(self, channels):
+        options = [discord.SelectOption(label=ch.name[:100], value=str(ch.id), description=f"หมวดหมู่: {ch.category.name if ch.category else 'ไม่มี'}") for ch in channels[:25]]
+        super().__init__(placeholder="📌 เลือกห้อง Ticket ที่ต้องการปิด (เลือกได้หลายห้อง)", min_values=1, max_values=len(options), options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        closed_count = 0
+        for channel_id in self.values:
+            ch = interaction.guild.get_channel(int(channel_id))
+            if ch:
+                try:
+                    await ch.delete(reason=f"Multi-closed by {interaction.user}")
+                    closed_count += 1
+                    await asyncio.sleep(0.4)
+                except Exception as e:
+                    print(f"Failed to delete channel: {e}")
+
+        await interaction.followup.send(f"✅ ปิดห้อง Ticket ที่เลือกสำเร็จทั้งหมด **{closed_count}** ห้องแล้วครับ!", ephemeral=True)
+
+class MultiTicketView(discord.ui.View):
+    def __init__(self, channels):
+        super().__init__(timeout=120)
+        self.add_item(MultiTicketSelect(channels))
+
+
+# 3. หน้าต่างหลัก Pop-up เลือกโหมดจัดการ Ticket
+class TicketManageView(discord.ui.View):
+    def __init__(self, guild):
+        super().__init__(timeout=120)
+        self.guild = guild
+
+    @discord.ui.button(label="🗑️ ปิดห้องเดียว", style=discord.ButtonStyle.primary, custom_id="btn_single")
+    async def btn_single(self, interaction: discord.Interaction, button: discord.ui.Button):
+        channels = [ch for ch in self.guild.text_channels if "ticket" in ch.name.lower() or "تيكيت" in ch.name.lower()]
+        if not channels:
+            await interaction.response.send_message("⚠️ ไม่พบห้อง Ticket ในขณะนี้ครับ", ephemeral=True)
+            return
+        await interaction.response.send_message("📋 กรุณาเลือกห้อง Ticket ที่ต้องการปิด (1 ห้อง):", view=SingleTicketView(channels), ephemeral=True)
+
+    @discord.ui.button(label="☑️ เลือกปิดหลายห้อง", style=discord.ButtonStyle.success, custom_id="btn_multi")
+    async def btn_multi(self, interaction: discord.Interaction, button: discord.ui.Button):
+        channels = [ch for ch in self.guild.text_channels if "ticket" in ch.name.lower() or "تيكيت" in ch.name.lower()]
+        if not channels:
+            await interaction.response.send_message("⚠️ ไม่พบห้อง Ticket ในขณะนี้ครับ", ephemeral=True)
+            return
+        await interaction.response.send_message("📋 กรุณาเลือกห้อง Ticket ที่ต้องการปิด (ติ๊กเลือกหลายห้องได้):", view=MultiTicketView(channels), ephemeral=True)
+
+    @discord.ui.button(label="🚨 ปิดห้องทั้งหมด", style=discord.ButtonStyle.danger, custom_id="btn_all")
+    async def btn_all(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ คำสั่งนี้ต้องใช้สิทธิ์ผู้ดูแลระบบ (Administrator) เท่านั้น", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        channels_to_delete = [ch for ch in self.guild.text_channels if "ticket" in ch.name.lower() or "تيكيت" in ch.name.lower()]
+        
+        if not channels_to_delete:
+            await interaction.followup.send("⚠️ ไม่พบห้อง Ticket ที่ต้องปิด", ephemeral=True)
+            return
+
+        closed_count = 0
+        for ch in channels_to_delete:
+            try:
+                await ch.delete(reason=f"Bulk closed via Pop-up by {interaction.user}")
+                closed_count += 1
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                print(f"Failed to delete channel: {e}")
+
+        await interaction.followup.send(f"✅ ปิดห้อง Ticket ทั้งหมดสำเร็จ **{closed_count}** ห้องแล้วครับ!", ephemeral=True)
+
+
+@bot.tree.command(name="ticket_manage", description="เปิดหน้าต่าง Pop-up เลือกวิธีปิดห้อง Ticket (ห้องเดียว, หลายห้อง, หรือทั้งหมด)")
+async def slash_ticket_manage(interaction: discord.SystemInteraction or discord.Interaction):
+    if not interaction.user.guild_permissions.manage_channels:
+        await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้", ephemeral=True)
+        return
+
+    view = TicketManageView(interaction.guild)
+    await interaction.response.send_message("🎫 **ระบบจัดการห้อง Ticket**\nกรุณาเลือกรูปแบบการปิดห้องที่คุณต้องการจากปุ่มด้านล่างนี้ครับ:", view=view, ephemeral=True)
+
 
 keep_alive()
 bot.run(os.environ.get("DISCORD_TOKEN"))
