@@ -5,7 +5,6 @@ from discord import app_commands
 from discord.ext import commands
 import yt_dlp
 import urllib.request
-import urllib.parse
 import json
 from keep_alive import keep_alive
 
@@ -17,12 +16,20 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ตั้งค่า yt-dlp สำหรับดึงเสียงจากลิงก์สตรีมตรง
+# ตั้งค่า yt-dlp พร้อมจำลอง Browser เพื่อลดโอกาสโดนบล็อก
 ytdl_format_options = {
     'format': 'bestaudio/best',
     'noplaylist': True,
     'quiet': True,
+    'default_search': 'ytsearch',
     'extract_flat': False,
+    'socket_timeout': 15,
+    'http_headers': {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-us,en;q=0.5',
+        'Sec-Fetch-Mode': 'navigate',
+    }
 }
 
 ffmpeg_options = {
@@ -42,52 +49,6 @@ async def on_ready():
         print(f"Synced {len(synced)} command(s)")
     except Exception as e:
         print(f"Failed to sync commands: {e}")
-
-# --- ฟังก์ชันค้นหาเพลงผ่าน Invidious API (เลี่ยงปัญหา YouTube บล็อก IP บน Cloud) ---
-def search_audio_url(query):
-    # ถ้าเป็นลิงก์ YouTube อยู่แล้ว ให้ใช้ yt-dlp ตรงๆ ได้เลย
-    if "youtube.com" in query or "youtu.be" in query:
-        info = ytdl.extract_info(query, download=False)
-        return info.get('url'), info.get('title', 'เพลงจาก YouTube')
-    
-    # ถ้าเป็น Spotify ให้ดึงชื่อเพลงก่อน
-    if "spotify.com" in query:
-        try:
-            oembed_url = f"https://open.spotify.com/oembed?url={query}"
-            req = urllib.request.Request(oembed_url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req) as response:
-                data_json = json.loads(response.read().decode())
-                query = data_json.get('title', query)
-        except Exception as err:
-            print(f"Spotify oembed error: {err}")
-
-    # ค้นหาผ่านสาธารณะ Invidious API เพื่อหลบเลี่ยงการบล็อก Bot ของ YouTube
-    invidious_instances = [
-        "https://invidious.privacyredirect.com",
-        "https://vid.puffyan.us",
-        "https://inv.nadeko.net"
-    ]
-    
-    encoded_query = urllib.parse.quote(query)
-    for instance in invidious_instances:
-        try:
-            search_url = f"{instance}/api/v1/search?q={encoded_query}&type=video"
-            req = urllib.request.Request(search_url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=5) as response:
-                results = json.loads(response.read().decode())
-                if results and len(results) > 0:
-                    video_id = results[0]['videoId']
-                    video_title = results[0]['title']
-                    yt_url = f"https://www.youtube.com/watch?v={video_id}"
-                    
-                    # ดึงสตรีมลิงก์ผ่าน yt-dlp อีกรอบจากไอดีที่หาได้
-                    info = ytdl.extract_info(yt_url, download=False)
-                    return info.get('url'), video_title
-        except Exception as e:
-            print(f"Instance {instance} failed: {e}")
-            continue
-            
-    raise Exception("ไม่สามารถค้นหาเพลงผ่านระบบสำรองได้ กรุณาลองใหม่อีกครั้ง")
 
 # --- Slash Command: /join ---
 @bot.tree.command(name="join", description="ให้บอทเชื่อมต่อเข้าห้องเสียง")
@@ -142,8 +103,26 @@ async def slash_play(interaction: discord.Interaction, search: str):
         await voice_client.move_to(channel)
 
     try:
+        query = search
+        # แปลงลิงก์ Spotify เป็นชื่อเพลง
+        if "spotify.com" in search:
+            try:
+                oembed_url = f"https://open.spotify.com/oembed?url={search}"
+                req = urllib.request.Request(oembed_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req) as response:
+                    data_json = json.loads(response.read().decode())
+                    query = data_json.get('title', search)
+            except Exception as err:
+                print(f"Spotify oembed error: {err}")
+
         loop = asyncio.get_event_loop()
-        song_url, song_title = await loop.run_in_executor(None, lambda: search_audio_url(search))
+        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(query, download=False))
+        
+        if 'entries' in data:
+            data = data['entries'][0]
+
+        song_url = data.get('url')
+        song_title = data.get('title', 'เพลงไม่มีชื่อ')
 
         def play_next(error):
             if error:
