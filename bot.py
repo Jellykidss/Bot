@@ -36,7 +36,7 @@ current_song = {}
 ticket_roles = {}
 feedback_channels = {}  # เก็บห้องรีวิวสาธารณะ
 ticket_categories = {}  # เก็บ ID หมวดหมู่แยกตามประเภท {guild_id: {'buyer': id, 'sell': id, 'preorder': id}}
-ticket_configs = {}     # เก็บการตั้งค่าหน้าตา Embed ของแต่ละหมวดหมู่
+ticket_configs = {}     # เก็บการตั้งค่าหน้าตา Embed และรูปภาพแยกตามหมวดหมู่
 
 # ฟังก์ชันตรวจสอบสิทธิ์ (แอดมิน หรือ มียศที่ตั้งค่าผ่าน /set_ticket_role)
 def has_ticket_permission(interaction: discord.Interaction) -> bool:
@@ -539,7 +539,7 @@ async def slash_set_ticket_categories(
     ticket_type="เลือกหมวดหมู่ที่ต้องการตั้งค่า",
     title_text="หัวข้อหลัก Embed (เช่น THNK FOR BUY)",
     description_text="ข้อความรายละเอียดในห้อง (เช่น ก่อนที่จะเสนอขายโปรดดูช่องรับเงิน...)",
-    image_url="ลิงก์รูปภาพ หรือ GIF ที่ต้องการแสดงในห้อง"
+    image_url="ลิงก์รูปภาพ หรือ GIF ที่ต้องการแสดงในห้องนี้โดยเฉพาะ"
 )
 @app_commands.choices(ticket_type=[
     app_commands.Choice(name="สั่งซื้อเงินเอ็ม (Buyer)", value="buyer"),
@@ -625,24 +625,38 @@ class FeedbackStarView(discord.ui.View):
         super().__init__(timeout=None)
         self.guild_id = guild_id
 
+    async def disable_all_buttons(self, interaction: discord.Interaction):
+        # ปิดการใช้งานปุ่มทั้งหมด ป้องกันการกดซ้ำ/สแปม
+        for child in self.children:
+            child.disabled = True
+        try:
+            await interaction.message.edit(view=self)
+        except Exception:
+            pass
+
     @discord.ui.button(label="⭐ 1 ดาว", style=discord.ButtonStyle.danger, custom_id="fb_1")
     async def rating_1(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.disable_all_buttons(interaction)
         await interaction.response.send_modal(ReviewModal(self.guild_id, 1))
 
     @discord.ui.button(label="⭐⭐ 2 ดาว", style=discord.ButtonStyle.secondary, custom_id="fb_2")
     async def rating_2(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.disable_all_buttons(interaction)
         await interaction.response.send_modal(ReviewModal(self.guild_id, 2))
 
     @discord.ui.button(label="⭐⭐⭐ 3 ดาว", style=discord.ButtonStyle.secondary, custom_id="fb_3")
     async def rating_3(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.disable_all_buttons(interaction)
         await interaction.response.send_modal(ReviewModal(self.guild_id, 3))
 
     @discord.ui.button(label="⭐⭐⭐⭐ 4 ดาว", style=discord.ButtonStyle.success, custom_id="fb_4")
     async def rating_4(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.disable_all_buttons(interaction)
         await interaction.response.send_modal(ReviewModal(self.guild_id, 4))
 
     @discord.ui.button(label="⭐⭐⭐⭐⭐ 5 ดาว", style=discord.ButtonStyle.success, custom_id="fb_5")
     async def rating_5(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.disable_all_buttons(interaction)
         await interaction.response.send_modal(ReviewModal(self.guild_id, 5))
 
 
@@ -740,7 +754,6 @@ class InTicketControlView(discord.ui.View):
 
     @discord.ui.button(label="Close", style=discord.ButtonStyle.danger, emoji="🔒", custom_id="ticket_inline_close")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # ตรวจสอบสิทธิ์: ถ้าไม่ใช่แอดมินหรือผู้มีสิทธิ์ ให้แจ้งเตือนส่วนตัว (ephemeral=True) โดยห้องไม่ปิด
         if not has_ticket_permission(interaction):
             await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานปุ่มนี้", ephemeral=True)
             return
@@ -758,7 +771,6 @@ class InTicketControlView(discord.ui.View):
 
     @discord.ui.button(label="Claim", style=discord.ButtonStyle.success, emoji="🙋‍♂️", custom_id="ticket_inline_claim")
     async def claim_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # ตรวจสอบสิทธิ์ปุ่ม Claim เช่นเดียวกัน
         if not has_ticket_permission(interaction):
             await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานปุ่มนี้", ephemeral=True)
             return
@@ -766,16 +778,19 @@ class InTicketControlView(discord.ui.View):
         await interaction.response.send_message(f"🙋‍♂️ แอดมิน **{interaction.user.mention}** เข้ามารับดูแลเคสนี้เรียบร้อยแล้วครับ!")
 
 
-# ----------------- ระบบเปิด Ticket แบบเลือก 3 หมวดหมู่พร้อมตั้งค่าหน้าตา -----------------
+# ----------------- ระบบเปิด Ticket แบบเลือก 3 หมวดหมู่ พร้อมดึงรูป GIF ตามหมวดที่ตั้งไว้ -----------------
 
 class OpenTicketSelect(discord.ui.Select):
-    def __init__(self):
+    def __init__(self, opt1_label, opt1_desc, opt2_label, opt2_desc, opt3_label, opt3_desc, placeholder_text, role_to_tag1, role_to_tag2, role_to_tag3):
         options = [
-            discord.SelectOption(label="Buyer-Money", description="สั่งซื้อเงินเอ็ม", value="buyer", emoji="💵"),
-            discord.SelectOption(label="Sell-money", description="ขายเงินเอ็ม", value="sell", emoji="💷"),
-            discord.SelectOption(label="Preorder", description="สั่งของในเมือง", value="preorder", emoji="📦")
+            discord.SelectOption(label=opt1_label, description=opt1_desc, value="buyer", emoji="💵"),
+            discord.SelectOption(label=opt2_label, description=opt2_desc, value="sell", emoji="💷"),
+            discord.SelectOption(label=opt3_label, description=opt3_desc, value="preorder", emoji="📦")
         ]
-        super().__init__(placeholder="💵 Buyer-Money 🔍 เลือกสินค้าด้านล่าง", min_values=1, max_values=1, options=options)
+        super().__init__(placeholder=placeholder_text, min_values=1, max_values=1, options=options)
+        self.role_to_tag1 = role_to_tag1
+        self.role_to_tag2 = role_to_tag2
+        self.role_to_tag3 = role_to_tag3
 
     async def callback(self, interaction: discord.Interaction):
         guild = interaction.guild
@@ -820,11 +835,10 @@ class OpenTicketSelect(discord.ui.Select):
                 reason=f"Ticket opened by {user}"
             )
 
-            # ดึงการตั้งค่าหน้าตา Embed ของหมวดหมู่นั้นๆ (ถ้ามี)
             cfg = ticket_configs.get(guild_id, {}).get(choice, {})
             title_val = cfg.get('title', f"THNK FOR {choice.upper()}")
             desc_val = cfg.get('description', f"สวัสดีคุณ {user.mention} กรุณาแจ้งรายละเอียดหรือส่งสลิปได้เลยครับ!")
-            img_val = cfg.get('image', None)
+            img_val = cfg.get('image', None)  # ดึงรูปภาพ/GIF เฉพาะของหมวดหมู่นั้นๆ
 
             embed = discord.Embed(
                 title=title_val,
@@ -834,36 +848,72 @@ class OpenTicketSelect(discord.ui.Select):
             if img_val:
                 embed.set_image(url=img_val)
 
+            # รวบรวมรายชื่อยศที่ต้องการแท็ก
+            tag_mentions = [user.mention]
+            for r in [self.role_to_tag1, self.role_to_tag2, self.role_to_tag3]:
+                if r:
+                    tag_mentions.append(r.mention)
+
+            ping_content = " ".join(tag_mentions)
+
             view = InTicketControlView()
-            await ticket_channel.send(content=f"{user.mention}", embed=embed, view=view)
+            await ticket_channel.send(content=ping_content, embed=embed, view=view)
             await interaction.followup.send(f"✅ เปิดห้อง Ticket ให้คุณแล้วที่ห้อง: {ticket_channel.mention}", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"❌ เกิดข้อผิดพลาดในการสร้างห้อง: {e}", ephemeral=True)
 
 class OpenTicketView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, opt1_label, opt1_desc, opt2_label, opt2_desc, opt3_label, opt3_desc, placeholder_text, role_to_tag1, role_to_tag2, role_to_tag3):
         super().__init__(timeout=None)
-        self.add_item(OpenTicketSelect())
+        self.add_item(OpenTicketSelect(opt1_label, opt1_desc, opt2_label, opt2_desc, opt3_label, opt3_desc, placeholder_text, role_to_tag1, role_to_tag2, role_to_tag3))
 
-@bot.tree.command(name="setup_open_ticket", description="ส่งแผงเลือกหมวดหมู่เปิด Ticket ไปยังห้องแชท")
+@bot.tree.command(name="setup_open_ticket", description="ส่งแผงเลือกหมวดหมู่เปิด Ticket พร้อมตั้งค่าแท็กยศ")
 @app_commands.describe(
     channel="เลือกห้องแชทที่จะส่งแผงนี้", 
-    image_url="ลิงก์รูปภาพหรือ GIF ตกแต่งด้านบน"
+    image_url="ลิงก์รูปภาพหรือ GIF สำหรับแผงเลือก (ด้านนอก)",
+    tag_role_1="เลือกยศที่ 1 ที่ต้องการให้แท็กในห้อง Ticket",
+    tag_role_2="เลือกยศที่ 2 ที่ต้องการให้แท็กในห้อง Ticket",
+    tag_role_3="เลือกยศที่ 3 ที่ต้องการให้แท็กในห้อง Ticket",
+    title_text="หัวข้อหลักของ Embed (ด้านนอก)",
+    description_text="รายละเอียดใน Embed (ด้านนอก)",
+    placeholder_text="ข้อความเริ่มต้นใน Dropdown",
+    opt1_label="ชื่อตัวเลือกที่ 1",
+    opt1_desc="คำอธิบายตัวเลือกที่ 1",
+    opt2_label="ชื่อตัวเลือกที่ 2",
+    opt2_desc="คำอธิบายตัวเลือกที่ 2",
+    opt3_label="ชื่อตัวเลือกที่ 3",
+    opt3_desc="คำอธิบายตัวเลือกที่ 3"
 )
-async def slash_setup_open_ticket(interaction: discord.Interaction, channel: discord.TextChannel, image_url: str = None):
+async def slash_setup_open_ticket(
+    interaction: discord.Interaction, 
+    channel: discord.TextChannel, 
+    image_url: str = None,
+    tag_role_1: discord.Role = None,
+    tag_role_2: discord.Role = None,
+    tag_role_3: discord.Role = None,
+    title_text: str = "• ˚  ★  // open ticket  • ˚ ‧  ★",
+    description_text: str = "เลือกสินค้าด้านล่าง",
+    placeholder_text: str = "💵 Buyer-Money 🔍 เลือกสินค้าด้านล่าง",
+    opt1_label: str = "Buyer-Money",
+    opt1_desc: str = "สั่งซื้อเงินเอ็ม",
+    opt2_label: str = "Sell-money",
+    opt2_desc: str = "ขายเงินเอ็ม",
+    opt3_label: str = "Preorder",
+    opt3_desc: str = "สั่งของในเมือง"
+):
     if not has_ticket_permission(interaction):
         await interaction.response.send_message("❌ คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้ (ต้องเป็นแอดมินหรือมียศที่ได้รับอนุญาตเท่านั้น)", ephemeral=True)
         return
 
     embed = discord.Embed(
-        title="• ˚  ★  // open ticket  • ˚ ‧  ★",
-        description="เลือกสินค้าด้านล่าง",
+        title=title_text,
+        description=description_text,
         color=discord.Color.dark_purple()
     )
     if image_url:
         embed.set_image(url=image_url)
 
-    view = OpenTicketView()
+    view = OpenTicketView(opt1_label, opt1_desc, opt2_label, opt2_desc, opt3_label, opt3_desc, placeholder_text, tag_role_1, tag_role_2, tag_role_3)
     await channel.send(embed=embed, view=view)
     await interaction.response.send_message(f"✅ ส่งแผงเลือกเปิด Ticket ไปที่ห้อง {channel.mention} เรียบร้อยแล้วครับ!", ephemeral=True)
 
